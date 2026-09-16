@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — publica el visor en $WWW_DIR desde el droplet.
+# deploy.sh — compila el visor y lo publica en $WWW_DIR.
 #
 #   ./scripts/deploy.sh          # full: git pull + instalación limpia + build + publicar
 #   ./scripts/deploy.sh datos    # cron: re-scrapea BCI y reemplaza solo beneficios.json
@@ -31,7 +31,7 @@ flock 9
 
 echo "=== $(date -Is) deploy.sh ($MODE) ==="
 
-# Variables opcionales del servidor (BCI_SUBSCRIPTION_KEY, NOMINATIM_USER_AGENT,
+# Variables opcionales (BCI_SUBSCRIPTION_KEY, NOMINATIM_USER_AGENT,
 # NOMINATIM_EMAIL, BASE_PATH, WWW_DIR).
 if [ -f "$REPO_DIR/.env" ]; then
   set -a
@@ -46,7 +46,7 @@ if ! node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.
   exit 1
 fi
 
-# Se ejecuta con éxito o error: nunca dejar artefactos de build en el droplet.
+# Se ejecuta con éxito o error: nunca dejar artefactos de build en el servidor.
 cleanup() {
   local status=$?
   echo "--- cleanup"
