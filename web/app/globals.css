@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+/* Paleta propia (neutral, no imita la marca de BCI). */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef0f4;
+  --ink: #161a23;
+  --muted: #5d6475;
+  --line: #dfe2e8;
+  --accent: #0f766e;
+  --accent-ink: #ffffff;
+  --accent-soft: #d7f0ec;
+  --hot: #c2410c;
+  --hot-soft: #ffedd5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116;
+    --surface: #161a22;
+    --surface-2: #1f2430;
+    --ink: #e8eaef;
+    --muted: #9aa1b1;
+    --line: #2a303c;
+    --accent: #2dd4bf;
+    --accent-ink: #062622;
+    --accent-soft: #113b37;
+    --hot: #fb923c;
+    --hot-soft: #3b2212;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-hot: var(--hot);
+  --color-hot-soft: var(--hot-soft);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* Pines del mapa */
+.pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.25rem;
+  height: 1.6rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font: 700 12px/1 var(--font-geist-sans), system-ui, sans-serif;
+  color: #fff;
+  background: #0f766e;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  transition: transform 120ms ease;
+}
+.pin--aprox {
+  background: #fff;
+  color: #0f766e;
+  border: 2px dashed #0f766e;
+}
+.pin--activo {
+  background: #c2410c;
+  color: #fff;
+  border: 2px solid #fff;
+  transform: translate(-50%, -50%) scale(1.25);
+  z-index: 1000;
+}
+.pin__n {
+  margin-left: 0.25rem;
+  font-weight: 600;
+  opacity: 0.8;
+}
+.leaflet-container {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  background: var(--surface-2);
+}
+.leaflet-popup-content {
+  margin: 10px 12px;
+}

@@ -1,0 +1,3 @@
+allowBuilds:
+  # Binario nativo de eslint-import-resolver; ya llega como dependencia opcional.
+  unrs-resolver: false

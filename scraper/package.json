@@ -1,0 +1,6 @@
+{
+  "name": "bci-beneficios-scraper",
+  "private": true,
+  "type": "module",
+  "main": "index.ts"
+}

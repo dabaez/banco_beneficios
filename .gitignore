@@ -1,0 +1,18 @@
+# dependencias
+node_modules/
+
+# build
+web/.next/
+web/out/
+
+# generados en el servidor por el scraper (scripts/deploy.sh datos)
+data/beneficios.json
+data/geocache.json
+.deploy.lock
+
+# variables de entorno del servidor
+.env
+.env.*
+
+.DS_Store
+*.log

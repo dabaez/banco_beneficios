@@ -1,0 +1,18 @@
+{
+  "name": "bci-beneficios",
+  "private": true,
+  "type": "module",
+  "description": "Visor no oficial de beneficios BCI Plus",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "scrape": "node scraper",
+    "scrape:sin-geo": "node scraper --sin-geocodificar",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "typescript": "^5.9.3"
+  }
+}
