@@ -1,8 +1,12 @@
 /**
  * Obtención de los descuentos de Banco Falabella.
  *
- * No hay API pública, pero tampoco bloqueo: www.bancofalabella.cl responde a
- * `fetch` plano (comprobado el 2026-09-18). El sitio es Next.js (App Router)
+ * No hay API pública, y en general tampoco bloqueo: www.bancofalabella.cl
+ * responde a `fetch` plano desde una IP residencial (comprobado el 2026-09-18).
+ * Pero está detrás de Cloudflare, que a IPs de datacenter (el servidor) les
+ * responde 403. En ese caso se repite todo con un navegador real (Playwright,
+ * igual que Santander): se abre el listado para pasar el desafío y desde la
+ * página se piden las fichas. El sitio es Next.js (App Router)
  * sobre Contentful y los datos vienen en el payload RSC que el HTML trae
  * embebido en `self.__next_f.push([1, "…"])`, así que basta con leer ese stream:
  *
@@ -125,38 +129,117 @@ function buscarPropiedad<T>(filas: Map<string, unknown>, clave: string): T | nul
 // HTTP
 // ---------------------------------------------------------------------------
 
-async function traerHtml(url: string): Promise<string> {
+/** Una petición: devuelve el status y, si es 2xx, el HTML. */
+type Pedir = (url: string) => Promise<{ status: number; html: string }>;
+
+const pedirConFetch: Pedir = async (url) => {
+  const r = await fetch(url, {
+    headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'es-CL,es;q=0.9' },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  return { status: r.status, html: r.ok ? await r.text() : '' };
+};
+
+class ErrorHttp extends Error {
+  status: number;
+
+  constructor(status: number) {
+    super(`HTTP ${status}`);
+    this.status = status;
+  }
+}
+
+async function traerHtml(pedir: Pedir, url: string): Promise<string> {
   let ultimo: unknown;
   for (let intento = 1; intento <= REINTENTOS; intento++) {
     try {
-      const r = await fetch(url, {
-        headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'es-CL,es;q=0.9' },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-      // 4xx no mejora reintentando; 5xx (el CDN responde 502 de vez en cuando) sí.
-      if (r.status >= 400 && r.status < 500) throw Object.assign(new Error(`HTTP ${r.status}`), { definitivo: true });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return await r.text();
+      const { status, html } = await pedir(url);
+      if (status >= 200 && status < 300) return html;
+      throw new ErrorHttp(status);
     } catch (err) {
       ultimo = err;
-      if ((err as { definitivo?: boolean }).definitivo) break;
+      // 4xx no mejora reintentando; 5xx (el CDN responde 502 de vez en cuando) sí.
+      if (err instanceof ErrorHttp && err.status >= 400 && err.status < 500) break;
       if (intento < REINTENTOS) await new Promise((res) => setTimeout(res, 1000 * intento));
     }
   }
   throw ultimo;
 }
 
-async function traerDetalle(linkUrl: string): Promise<DetalleFicha> {
-  const html = await traerHtml(new URL(linkUrl, ORIGEN).href);
+async function traerDetalle(pedir: Pedir, linkUrl: string): Promise<DetalleFicha> {
+  const html = await traerHtml(pedir, new URL(linkUrl, ORIGEN).href);
   const detalle = buscarPropiedad<DetalleFicha>(filasRsc(html), 'benefitData');
   if (!detalle) throw new Error('la ficha no trae "benefitData"');
   return detalle;
 }
 
+// ---------------------------------------------------------------------------
+// Respaldo con navegador (Cloudflare bloquea IPs de datacenter)
+// ---------------------------------------------------------------------------
+
+/** Fuerza el navegador aunque `fetch` funcione (para probar el respaldo). */
+const FORZAR_NAVEGADOR = process.env.FALABELLA_NAVEGADOR === '1';
+
+/**
+ * Abre el listado en Chromium con ventana (en un servidor, bajo xvfb-run) para
+ * que Cloudflare emita sus cookies, y corre `trabajo` con un `Pedir` que hace
+ * los `fetch` desde la página, heredando esas cookies.
+ */
+async function conNavegador<T>(trabajo: (pedir: Pedir) => Promise<T>): Promise<T> {
+  let chromium;
+  try {
+    ({ chromium } = await import('playwright'));
+  } catch {
+    throw new ErrorFuente(
+      'falabella',
+      'Cloudflare bloqueó el fetch (403) y el respaldo requiere Playwright.\n' +
+        '  Instálalo con:  pnpm install && pnpm exec playwright install --with-deps chromium',
+    );
+  }
+  const navegador = await chromium.launch({
+    channel: 'chromium',
+    headless: false,
+    args: ['--disable-blink-features=AutomationControlled'],
+  });
+  try {
+    const contexto = await navegador.newContext({
+      locale: 'es-CL',
+      timezoneId: 'America/Santiago',
+      viewport: { width: 1366, height: 900 },
+    });
+    const pagina = await contexto.newPage();
+    await pagina.goto(PAGINA, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    // Si hay desafío de Cloudflare, la página se recarga sola al resolverlo.
+    await pagina
+      .waitForFunction(() => document.documentElement.innerHTML.includes('benefitCardsData'), null, { timeout: 60_000 })
+      .catch(() => {});
+
+    const pedir: Pedir = (url) =>
+      pagina.evaluate(async (u) => {
+        const r = await fetch(u, { credentials: 'include', headers: { Accept: 'text/html' } });
+        return { status: r.status, html: r.ok ? await r.text() : '' };
+      }, url);
+    return await trabajo(pedir);
+  } finally {
+    await navegador.close();
+  }
+}
+
 export async function traerBeneficios(): Promise<BeneficioCrudo[]> {
+  if (FORZAR_NAVEGADOR) return conNavegador(traerCon);
+  try {
+    return await traerCon(pedirConFetch);
+  } catch (err) {
+    if (!(err instanceof ErrorFuente && err.message.includes('HTTP 403'))) throw err;
+    console.warn('  ⚠ Cloudflare respondió 403 al fetch; reintentando con navegador…');
+    return conNavegador(traerCon);
+  }
+}
+
+async function traerCon(pedir: Pedir): Promise<BeneficioCrudo[]> {
   let html: string;
   try {
-    html = await traerHtml(PAGINA);
+    html = await traerHtml(pedir, PAGINA);
   } catch (err) {
     throw new ErrorFuente('falabella', `No se pudo descargar ${PAGINA}: ${err}`);
   }
@@ -186,7 +269,7 @@ export async function traerBeneficios(): Promise<BeneficioCrudo[]> {
       const i = siguiente++;
       const link = pendientes[i].benefitCard.linkUrl;
       try {
-        resultado[i].detalle = await traerDetalle(link);
+        resultado[i].detalle = await traerDetalle(pedir, link);
       } catch (err) {
         fallidas.push(`${link} (${err})`);
       }

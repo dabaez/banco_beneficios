@@ -69,7 +69,9 @@ caído (queda marcado con `error` en `bancos[]` del JSON) y sale con código 3.
 
 ### Banco Falabella
 
-- **Fuente:** no hay API pública, pero tampoco bloqueo: basta `fetch`. El sitio es Next.js (App
+- **Fuente:** no hay API pública, y desde una IP residencial basta `fetch`. Cloudflare sí responde
+  403 a IPs de datacenter: en ese caso el adaptador repite todo desde un Chromium con ventana
+  (Playwright, como Santander; se puede forzar con `FALABELLA_NAVEGADOR=1`). El sitio es Next.js (App
   Router) sobre Contentful y los datos vienen en el payload RSC embebido en el HTML
   (`self.__next_f.push`). [`/descuentos/todos`](https://www.bancofalabella.cl/descuentos/todos)
   trae todas las tarjetas (`benefitCardsData`, ~239) y cada ficha `/descuentos/detalle/<slug>`
@@ -162,10 +164,11 @@ servidor web. Tiene dos modos (ver los comentarios del script):
 `data/` vive solo en el servidor. Si falla un banco, se publican los demás con los datos previos
 del caído; si falla todo, el sitio sigue sirviendo los datos anteriores. El error queda en el log.
 
-Santander y BancoEstado usan Playwright. `deploy.sh full` descarga el Chromium que corresponde a
-la versión del lockfile (~300 MB, en `~/.cache/ms-playwright`), pero las dependencias del sistema
-se instalan una sola vez al preparar el servidor, como root desde la raíz del repo:
-`apt install xvfb && pnpm install && pnpm exec playwright install-deps chromium`.
+Santander y BancoEstado usan Playwright (y Falabella como respaldo si Cloudflare bloquea la IP
+del servidor). `deploy.sh full` descarga el Chromium que corresponde a la versión del lockfile
+(~300 MB, en `~/.cache/ms-playwright`) y, si le faltan librerías del sistema o no hay `xvfb-run`,
+los instala (`playwright install-deps chromium` y `apt install xvfb`) cuando corre como root; si no,
+solo avisa en el log.
 
 Variables opcionales, en un `.env` en la raíz del repo: `BCI_SUBSCRIPTION_KEY`,
 `NOMINATIM_USER_AGENT`, `NOMINATIM_EMAIL`, `WWW_DIR` (destino de la publicación) y `BASE_PATH`

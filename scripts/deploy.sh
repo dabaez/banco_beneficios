@@ -16,8 +16,8 @@
 #
 # Santander y BancoEstado necesitan un navegador con ventana (Akamai bloquea headless), así que
 # en un servidor sin pantalla el scraper se envuelve en xvfb-run. El modo full descarga
-# Chromium; las dependencias del sistema se instalan una vez al preparar el servidor:
-#   apt install xvfb && pnpm install && pnpm exec playwright install-deps chromium
+# Chromium y, si faltan y se corre como root, sus librerías del sistema y xvfb. Falabella
+# también lo usa como respaldo cuando Cloudflare bloquea el fetch plano (403).
 #
 # Ambos modos toman un lock exclusivo para que un cron y un deploy nunca se crucen.
 #
@@ -80,6 +80,29 @@ scrapear() {
   fi
 }
 
+# Chromium + librerías del sistema (libatk, libnss3, …) + xvfb. Las librerías
+# solo se instalan si faltan (ldd), para no correr apt en cada deploy; eso
+# requiere root, si no, solo se avisa.
+preparar_navegador() {
+  pnpm exec playwright install chromium
+  local chrome faltan
+  chrome="$(node -e 'import("playwright").then(m => console.log(m.chromium.executablePath()))')"
+  faltan="$(ldd "$chrome" 2>/dev/null | grep 'not found' || true)"
+  local sin_xvfb=0
+  if [ -z "${DISPLAY:-}" ] && ! command -v xvfb-run >/dev/null; then sin_xvfb=1; fi
+  if [ -z "$faltan" ] && [ "$sin_xvfb" -eq 0 ]; then return; fi
+
+  if [ "$(id -u)" -eq 0 ]; then
+    [ -n "$faltan" ] && echo "--- Faltan librerías de Chromium, instalándolas:" && echo "$faltan"
+    pnpm exec playwright install-deps chromium
+    [ "$sin_xvfb" -eq 1 ] && apt-get install -y xvfb
+  else
+    [ -n "$faltan" ] && echo "⚠ Faltan librerías de Chromium (como root: pnpm exec playwright install-deps chromium):" >&2 && echo "$faltan" >&2
+    [ "$sin_xvfb" -eq 1 ] && echo "⚠ Falta xvfb-run (como root: apt install xvfb)." >&2
+  fi
+  return 0
+}
+
 publicar_datos() {
   mkdir -p "$WWW_DIR"
   # copia + mv: nginx nunca sirve un JSON a medio escribir
@@ -96,12 +119,8 @@ case "$MODE" in
     # Dependencias del scraper (Playwright para Santander y BancoEstado).
     pnpm install --frozen-lockfile
     # Chromium de la versión de Playwright del lockfile (no-op si ya está;
-    # borra los de versiones anteriores). Las dependencias del sistema y xvfb
-    # se instalan una vez al preparar el servidor (ver README).
-    pnpm exec playwright install chromium
-    if [ -z "${DISPLAY:-}" ] && ! command -v xvfb-run >/dev/null; then
-      echo "⚠ Falta xvfb-run: Santander y BancoEstado van a fallar (apt install xvfb)." >&2
-    fi
+    # borra los de versiones anteriores) más sus librerías del sistema y xvfb.
+    preparar_navegador
 
     # Primer deploy (o datos borrados): generar los datos antes del build.
     if [ ! -f data/beneficios.json ]; then
