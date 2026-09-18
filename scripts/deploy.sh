@@ -15,8 +15,9 @@
 # resto y sale con código 3. Si falla todo, el sitio publicado queda intacto.
 #
 # Santander y BancoEstado necesitan un navegador con ventana (Akamai bloquea headless), así que
-# en un servidor sin pantalla el scraper se envuelve en xvfb-run:
-#   apt install xvfb && pnpm install && pnpm exec playwright install --with-deps chromium
+# en un servidor sin pantalla el scraper se envuelve en xvfb-run. El modo full descarga
+# Chromium; las dependencias del sistema se instalan una vez al preparar el servidor:
+#   apt install xvfb && pnpm install && pnpm exec playwright install-deps chromium
 #
 # Ambos modos toman un lock exclusivo para que un cron y un deploy nunca se crucen.
 #
@@ -94,6 +95,13 @@ case "$MODE" in
     (cd web && pnpm install --frozen-lockfile)
     # Dependencias del scraper (Playwright para Santander y BancoEstado).
     pnpm install --frozen-lockfile
+    # Chromium de la versión de Playwright del lockfile (no-op si ya está;
+    # borra los de versiones anteriores). Las dependencias del sistema y xvfb
+    # se instalan una vez al preparar el servidor (ver README).
+    pnpm exec playwright install chromium
+    if [ -z "${DISPLAY:-}" ] && ! command -v xvfb-run >/dev/null; then
+      echo "⚠ Falta xvfb-run: Santander y BancoEstado van a fallar (apt install xvfb)." >&2
+    fi
 
     # Primer deploy (o datos borrados): generar los datos antes del build.
     if [ ! -f data/beneficios.json ]; then

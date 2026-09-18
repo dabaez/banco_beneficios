@@ -162,9 +162,10 @@ servidor web. Tiene dos modos (ver los comentarios del script):
 `data/` vive solo en el servidor. Si falla un banco, se publican los demás con los datos previos
 del caído; si falla todo, el sitio sigue sirviendo los datos anteriores. El error queda en el log.
 
-En el servidor, Santander necesita además: `apt install xvfb` y
-`pnpm install && pnpm exec playwright install --with-deps chromium` en la raíz del repo
-(~300 MB de navegador).
+Santander y BancoEstado usan Playwright. `deploy.sh full` descarga el Chromium que corresponde a
+la versión del lockfile (~300 MB, en `~/.cache/ms-playwright`), pero las dependencias del sistema
+se instalan una sola vez al preparar el servidor, como root desde la raíz del repo:
+`apt install xvfb && pnpm install && pnpm exec playwright install-deps chromium`.
 
 Variables opcionales, en un `.env` en la raíz del repo: `BCI_SUBSCRIPTION_KEY`,
 `NOMINATIM_USER_AGENT`, `NOMINATIM_EMAIL`, `WWW_DIR` (destino de la publicación) y `BASE_PATH`
