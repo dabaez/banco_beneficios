@@ -10,8 +10,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Beneficio, Ubicacion } from '../shared/beneficio.ts';
-import { detectarLocalidades, normalizar, type Localidad, type Region } from './localidades.ts';
-import type { BeneficioSinGeo } from './transformar.ts';
+import { detectarLocalidades, detectarRegiones, normalizar, type Localidad, type Region } from './localidades.ts';
+import type { BeneficioSinGeo } from './tipos.ts';
 
 const ENDPOINT = 'https://nominatim.openstreetmap.org/search';
 const INTERVALO_MS = 1100;
@@ -25,7 +25,7 @@ const MAX_KM_LOCAL_FUERA = 3;
 
 const USER_AGENT =
   process.env.NOMINATIM_USER_AGENT ||
-  'bci-beneficios-visor/1.0 (visor personal no oficial de beneficios; github.com/bci-beneficios-visor)';
+  'banco-beneficios-visor/1.0 (visor personal no oficial de beneficios; github.com/dabaez/banco_beneficios)';
 
 interface ResultadoNominatim {
   lat: number;
@@ -171,6 +171,25 @@ export class Geocodificador {
         (r) =>
           CLASES_LOCAL.has(r.clase) &&
           coincideNombre(comercio, r.nombre) &&
+          enRegion(r, l.region) &&
+          (direccionEnComuna(r, l.comuna) || distanciaKm(r, centro) <= MAX_KM_LOCAL_FUERA),
+      ) ?? null
+    );
+  }
+
+  /**
+   * Un local por la dirección que entrega el banco ("Manuel Montt 697",
+   * Providencia). Solo vale un punto exacto: con número de casa o un local;
+   * una calle sin número cae a kilómetros del local.
+   */
+  async porDireccion(l: Localidad, centro: { lat: number; lng: number }): Promise<ResultadoNominatim | null> {
+    if (!l.direccion) return null;
+    const rs = await this.buscar(`${l.direccion}, ${l.comuna}, Chile`, 3);
+    return (
+      rs.find(
+        (r) =>
+          (r.address.house_number || CLASES_LOCAL.has(r.clase)) &&
+          enRegion(r, l.region) &&
           (direccionEnComuna(r, l.comuna) || distanciaKm(r, centro) <= MAX_KM_LOCAL_FUERA),
       ) ?? null
     );
@@ -189,7 +208,9 @@ export class Geocodificador {
     if (!CLASES_LOCAL.has(r.clase) || !coincideNombre(comercio, r.nombre, true)) return null;
     const a = r.address;
     const { localidades } = detectarLocalidades([a.suburb, a.city_district, a.town, a.city, a.village, a.municipality].filter(Boolean));
-    return localidades[0] ? { r, localidad: { comuna: localidades[0].comuna, region: localidades[0].region } } : null;
+    // Un barrio puede llamarse como una comuna de otra región ("San Joaquín", La Serena).
+    const l = localidades.find((x) => enRegion(r, x.region));
+    return l ? { r, localidad: { comuna: l.comuna, region: l.region } } : null;
   }
 }
 
@@ -220,6 +241,17 @@ function comparteNombre(comercio: string, nombreOsm: string): boolean {
   return tokens(nombreParaBuscar(comercio)).some((t) => b.includes(t));
 }
 
+/**
+ * El resultado está en la región esperada. Hace falta porque `direccionEnComuna`
+ * también acepta barrios homónimos: "Work Café, San Joaquín" devolvía el barrio
+ * San Joaquín de La Serena, y "Burger King, San Miguel" la población San Miguel
+ * de Talca. Sin `state` en la respuesta no hay cómo descartarlo: se acepta.
+ */
+function enRegion(r: ResultadoNominatim, region: string): boolean {
+  const state = r.address.state;
+  return !state || detectarRegiones([state]).includes(region as Region);
+}
+
 function direccionEnComuna(r: ResultadoNominatim, comuna: string): boolean {
   const c = normalizar(comuna);
   return Object.values(r.address).some((v) => normalizar(v) === c) || normalizar(r.direccion).includes(`, ${c},`);
@@ -237,9 +269,18 @@ function redondear(n: number) {
   return Math.round(n * 1e6) / 1e6;
 }
 
-export async function geocodificarBeneficios(items: BeneficioSinGeo[], geo: Geocodificador): Promise<Beneficio[]> {
+/**
+ * Agrega coordenadas a los beneficios ya normalizados.
+ * `categoriasLocalFisico` las define cada banco: son las categorías cuyos
+ * comercios tienen local a la calle y vale la pena buscar en OSM sin comuna.
+ */
+export async function geocodificarBeneficios(
+  items: BeneficioSinGeo[],
+  geo: Geocodificador,
+  categoriasLocalFisico: string[] = [],
+): Promise<Beneficio[]> {
   const salida: Beneficio[] = [];
-  const stats = { local: 0, sector: 0, comuna: 0, sinCoords: 0, localSinComuna: 0 };
+  const stats = { local: 0, direccion: 0, sector: 0, comuna: 0, sinCoords: 0, localSinComuna: 0 };
 
   for (const [i, { beneficio, localidades }] of items.entries()) {
     if ((i + 1) % 25 === 0) console.log(`  ${i + 1}/${items.length} (requests a Nominatim: ${geo.requests})`);
@@ -253,6 +294,13 @@ export async function geocodificarBeneficios(items: BeneficioSinGeo[], geo: Geoc
       }
       const base = { comuna: l.comuna, region: l.region, ...(l.sector ? { sector: l.sector } : {}) };
 
+      // Con dirección, primero la dirección: buscar por nombre puede dar otra sucursal de la comuna.
+      const porDireccion = await geo.porDireccion(l, centro);
+      if (porDireccion) {
+        stats.direccion++;
+        ubicaciones.push({ ...base, lat: redondear(porDireccion.lat), lng: redondear(porDireccion.lng), precision: 'local', direccion: porDireccion.direccion });
+        continue;
+      }
       const local = await geo.local(beneficio.comercio.nombre, l, centro);
       if (local) {
         stats.local++;
@@ -270,7 +318,7 @@ export async function geocodificarBeneficios(items: BeneficioSinGeo[], geo: Geoc
     }
 
     let { alcance, regiones } = beneficio;
-    const esLocalFisico = beneficio.presencial && beneficio.categorias.some((c) => c === 'Restaurantes' || c === 'Antojos');
+    const esLocalFisico = beneficio.presencial && beneficio.categorias.some((c) => categoriasLocalFisico.includes(c));
     if (!localidades.length && alcance === 'desconocido' && esLocalFisico) {
       const encontrado = await geo.localSinComuna(beneficio.comercio.nombre);
       if (encontrado) {
@@ -294,7 +342,7 @@ export async function geocodificarBeneficios(items: BeneficioSinGeo[], geo: Geoc
 
   geo.guardar();
   console.log(
-    `  Pines: ${stats.local} en el local exacto (+${stats.localSinComuna} sin comuna previa), ` +
+    `  Pines: ${stats.local} en el local exacto (+${stats.localSinComuna} sin comuna previa, +${stats.direccion} por dirección), ` +
       `${stats.sector} en sector, ${stats.comuna} en centro de comuna; ${stats.sinCoords} sin coordenadas.`,
   );
   return salida;

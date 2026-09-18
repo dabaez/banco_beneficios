@@ -1,102 +1,21 @@
 /**
  * Tipos compartidos entre el scraper y el frontend.
  *
- * `OfertaApi` refleja la respuesta real de
- * GET https://api.bciplus.cl/bff-loyalty-beneficios/v1/offers (inspeccionada el 2026-09-15).
- * `Beneficio` es la forma normalizada/enriquecida que se guarda en data/beneficios.json.
+ * `Beneficio` es la forma normalizada/enriquecida que se guarda en
+ * data/beneficios.json, común a todos los bancos. Cada banco define sus propios
+ * tipos crudos en scraper/bancos/<id>/tipos.ts y los normaliza a esta forma.
  *
  * Solo sintaxis "borrable" (interfaces/types, sin enums) para que Node pueda
  * ejecutar el scraper con type stripping nativo.
  */
 
-// ---------------------------------------------------------------------------
-// Respuesta cruda de la API
-// ---------------------------------------------------------------------------
-
-export interface RespuestaOfertasApi {
-  paginado: {
-    cantidadTotal: number;
-    itemsPorPagina: number;
-    paginaActual: number;
-    totalPaginas: number;
-  };
-  ofertas: OfertaApi[];
-}
-
-export type DiaApi = 'LUNES' | 'MARTES' | 'MIERCOLES' | 'JUEVES' | 'VIERNES' | 'SABADO' | 'DOMINGO';
-
-export interface OfertaApi {
-  id: string;
-  titulo: string;
-  subtitulo: string;
-  descripcion: string;
-  legal: string;
-  /** Observado: "DISCOUNT" | "CASHBACK_BY_MMPP". */
-  tipoOfertaPrincipal: string;
-  fechaInicio: string;
-  fechaTermino: string;
-  tieneFechaTermino: boolean;
-  soloAdultos: boolean;
-  prioridad: number;
-  visibleApp: boolean;
-  visibleWeb: boolean;
-  link: string;
-  slug: string;
-  categorias: { id: string; titulo: string }[];
-  tags: { id: string; nombre: string }[];
-  leadDuration: number;
-  /** imagen1/2: banner 1080x365, imagen3: tarjeta 876x579, imagen4: logo 104x104. */
-  imagenes: { imagen1?: string; imagen2?: string; imagen3?: string; imagen4?: string };
-  comercio: { id: string; nombre: string };
-  tracking: {
-    tipo?: string;
-    condiciones: string;
-    exclusiones?: string;
-    entregaTerm: number;
-    validacionTerm: number;
-    requiereRut: boolean;
-  };
-  beneficio: {
-    discount?: { porcentajeDescuento: number };
-    /** Fracción: 0.07 = 7%. */
-    cashback?: { porcentajeCashback: number; tope: number };
-  };
-  deal: {
-    discount?: { percentage: number };
-    cashback?: { percentage: number; tope: number };
-    total?: {
-      cashback: { percentage: number; tope: number };
-      tarjetas: { origen: string; tipo: string; cashback: { porcentaje: number; tope: number } }[];
-    };
-  };
-  partners: { nombre: string; codigo: string }[];
-  isSegmented: boolean;
-  tcAfluente?: string[];
-  scheduling: {
-    parentId: string | null;
-    /** Estado *del día en que se consultó* (ACTIVA = aplica hoy). No sirve como dato persistente. */
-    activityStatus: string;
-    durationType: string;
-    lastActivityStatus: string;
-    isRecurrent: boolean;
-    dayRecurrence: DiaApi[];
-    recurrenceLabel: string;
-  };
-  isExclusive: boolean;
-  /** Texto libre; a veces "(region): ...;(comuna): ..." o "VITACURA; VIERNES; ;". */
-  keywords?: string;
-  medioDePago?: { online: boolean; presencial: boolean; tarjetas: unknown[]; duracionLead: number };
-  rangoBeneficio?: { porcentajeMinimo: number; porcentajeMaximo: number; tope: number };
-}
-
-// ---------------------------------------------------------------------------
-// Dataset enriquecido (data/beneficios.json)
-// ---------------------------------------------------------------------------
+export type { BancoId } from './bancos.ts';
+import type { BancoId } from './bancos.ts';
 
 /** 0 = domingo ... 6 = sábado (igual que Date#getDay). */
 export type DiaSemana = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
-export type TipoBeneficio = 'descuento' | 'cashback' | 'cuotas' | 'otro';
+export type TipoBeneficio = 'descuento' | 'cashback' | 'cuotas' | 'millas' | 'otro';
 
 /** Qué tan exacto es el pin. */
 export type PrecisionUbicacion =
@@ -132,6 +51,8 @@ export type Alcance =
   | 'desconocido';
 
 export interface Beneficio {
+  /** Banco emisor. Los ids son únicos entre bancos porque llevan su prefijo. */
+  banco: BancoId;
   id: string;
   slug: string;
   titulo: string;
@@ -160,6 +81,8 @@ export interface Beneficio {
   fechaInicio: string;
   /** null = sin fecha de término. */
   fechaTermino: string | null;
+  /** true si fechaTermino se dedujo de texto libre y puede ser imprecisa. */
+  fechaTerminoAproximada?: boolean;
   soloAdultos: boolean;
   exclusivo: boolean;
   prioridad: number;
@@ -169,9 +92,19 @@ export interface Beneficio {
   ubicaciones: Ubicacion[];
 }
 
+/** Resumen por banco de la corrida que generó el dataset. */
+export interface ResumenBanco {
+  id: BancoId;
+  nombre: string;
+  fuente: string;
+  total: number;
+  /** Presente si el banco falló: el dataset conserva los datos previos de ese banco. */
+  error?: string;
+}
+
 export interface DatasetBeneficios {
   generadoEn: string;
-  fuente: string;
+  bancos: ResumenBanco[];
   total: number;
   beneficios: Beneficio[];
 }

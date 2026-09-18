@@ -9,8 +9,9 @@ import {
   formatoFecha,
   formatoPesos,
   textoDias,
+  textoTarjetas,
 } from '@/lib/formato';
-import type { Beneficio } from '@/lib/tipos';
+import { BANCOS, type Beneficio } from '@/lib/tipos';
 
 interface Props {
   b: Beneficio | null;
@@ -80,14 +81,15 @@ export default function DetalleBeneficio({ b, ahora, onCerrar, onVerEnMapa }: Pr
               <Dato etiqueta="Tipo">{ETIQUETA_TIPO[b.tipo]}</Dato>
               <Dato etiqueta="Días">{textoDias(b.dias)}</Dato>
               <Dato etiqueta="Tope">{b.tope ? formatoPesos(b.tope) : 'Sin tope informado'}</Dato>
-              <Dato etiqueta="Tarjetas">{b.tarjetas.length ? b.tarjetas.join(', ') : '—'}</Dato>
+              <Dato etiqueta="Tarjetas">{textoTarjetas(b)}</Dato>
               <Dato etiqueta="Canal">
                 {[b.presencial && 'Presencial', b.online && 'Online'].filter(Boolean).join(' y ') || '—'}
               </Dato>
               <Dato etiqueta="Vigencia">
                 {b.fechaTermino ? (
                   <>
-                    Hasta {formatoFecha(b.fechaTermino)}
+                    {b.fechaTerminoAproximada ? 'Aprox. hasta ' : 'Hasta '}
+                    {formatoFecha(b.fechaTermino)}
                     {vence != null && vence <= 14 && <span className="text-hot"> ({vence <= 0 ? 'hoy' : `${vence} d`})</span>}
                   </>
                 ) : (
@@ -172,7 +174,7 @@ export default function DetalleBeneficio({ b, ahora, onCerrar, onVerEnMapa }: Pr
                 </a>
               )}
               <p className="text-xs text-muted">
-                Verifica siempre las condiciones en los canales oficiales de Bci antes de usar el beneficio.
+                Verifica siempre las condiciones en los canales oficiales de {BANCOS[b.banco].nombre} antes de usar el beneficio.
               </p>
             </div>
           </div>

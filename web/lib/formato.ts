@@ -1,4 +1,4 @@
-import type { Beneficio, DiaSemana, PrecisionUbicacion, TipoBeneficio } from './tipos';
+import { BANCOS, type Beneficio, type DiaSemana, type PrecisionUbicacion, type TipoBeneficio } from './tipos';
 
 export const DIAS_CORTOS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'] as const;
 export const DIAS_LARGOS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'] as const;
@@ -9,6 +9,7 @@ export const ETIQUETA_TIPO: Record<TipoBeneficio, string> = {
   descuento: 'Descuento',
   cashback: 'Cashback',
   cuotas: 'Cuotas sin interés',
+  millas: 'Millas',
   otro: 'Otros',
 };
 
@@ -39,6 +40,7 @@ export function etiquetaDescuento(b: Beneficio): string {
   if (b.descuento != null) return `${Number.isInteger(b.descuento) ? b.descuento : b.descuento.toFixed(1)}%`;
   if (b.tipo === 'cuotas') return 'Cuotas';
   if (b.tipo === 'cashback') return 'Cashback';
+  if (b.tipo === 'millas') return 'Millas';
   return 'Beneficio';
 }
 
@@ -51,4 +53,27 @@ export function textoUbicacion(b: Beneficio): string {
   if (b.alcance === 'nacional') return 'Todo Chile';
   if (b.regiones.length) return b.regiones.join(', ');
   return '';
+}
+
+/** "a", "a o b", "a, b o c". */
+function enumerar(xs: string[]): string {
+  return xs.length > 1 ? `${xs.slice(0, -1).join(', ')} o ${xs[xs.length - 1]}` : (xs[0] ?? '');
+}
+
+/**
+ * Tarjetas con que aplica, en lenguaje natural. Las premium restringen y el
+ * producto base las califica: ["Crédito", "American Express"] se lee
+ * "Solo American Express (crédito)", no como dos opciones.
+ */
+export function textoTarjetas(b: Beneficio): string {
+  const { base: todasBase, premium: todasPremium } = BANCOS[b.banco].tarjetas;
+  const premium: readonly string[] = todasPremium;
+  // Orden del banco, no el del scraper: "Crédito o Débito" siempre igual.
+  const orden: readonly string[] = [...todasBase, ...todasPremium];
+  const tarjetas = [...b.tarjetas].sort((x, y) => orden.indexOf(x) - orden.indexOf(y));
+  const exigidas = tarjetas.filter((t) => premium.includes(t));
+  const base = tarjetas.filter((t) => !premium.includes(t));
+  if (!exigidas.length) return base.length ? enumerar(base) : '—';
+  const producto = base.map((t) => (['Crédito', 'Débito', 'Empresas'].includes(t) ? t.toLowerCase() : t));
+  return `Solo ${enumerar(exigidas)}${producto.length ? ` (${enumerar(producto)})` : ''}`;
 }

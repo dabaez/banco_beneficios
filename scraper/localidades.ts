@@ -1,9 +1,9 @@
 /**
  * Detección de ubicaciones a partir del texto de una oferta.
  *
- * La API de BCI no entrega direcciones: la ubicación solo aparece en tags
- * ("Vitacura", "R. Metropolitana"), en `keywords` ("VITACURA; VIERNES; ;") o en
- * el título ("Miércoles - Concepción"). Aquí se reconocen comunas, sectores
+ * Ningún banco entrega direcciones: la ubicación aparece en texto libre (en BCI,
+ * tags como "R. Metropolitana", `keywords` o el título; en Santander, los campos
+ * "Comuna cobertura"/"Región cobertura"). Aquí se reconocen comunas, sectores
  * conocidos y regiones dentro de esos textos.
  */
 
@@ -48,6 +48,22 @@ const SECTORES: Record<string, { comuna: string; alias?: string[] }> = {
   'Mall Sport': { comuna: 'Las Condes' },
   MUT: { comuna: 'Las Condes', alias: ['Mercado Urbano Tobalaba'] },
   'Costanera Center': { comuna: 'Providencia', alias: ['Cenco Costanera'] },
+  // Malls y polos gastronómicos que Banco Falabella nombra en vez de la comuna.
+  'Parque Arauco': { comuna: 'Las Condes', alias: ['Boulevard Parque Arauco'] },
+  'Alto Las Condes': { comuna: 'Las Condes', alias: ['Mall Alto Las Condes'] },
+  'Open Kennedy': { comuna: 'Las Condes' },
+  'Isidora 3000': { comuna: 'Las Condes' },
+  'Mall Plaza Los Dominicos': { comuna: 'Las Condes', alias: ['Mallplaza Los Dominicos', 'Plaza Los Dominicos'] },
+  'Mall Plaza Vespucio': { comuna: 'La Florida', alias: ['Mallplaza Vespucio', 'Plaza Vespucio'] },
+  'Mall Florida Center': { comuna: 'La Florida', alias: ['Florida Center'] },
+  'Mall Plaza Egaña': { comuna: 'La Reina', alias: ['Mallplaza Egaña', 'Plaza Egaña'] },
+  'Mall Plaza Norte': { comuna: 'Huechuraba', alias: ['Mallplaza Norte'] },
+  'Mall Plaza Oeste': { comuna: 'Cerrillos', alias: ['Mallplaza Oeste'] },
+  'Mall Plaza Tobalaba': { comuna: 'Puente Alto', alias: ['Mallplaza Tobalaba'] },
+  'Portal La Dehesa': { comuna: 'Lo Barnechea' },
+  'Vivo Panorámico': { comuna: 'Providencia', alias: ['Mall Vivo Panorámico', 'Vivo Panomarico'] }, // con la errata del sitio
+  'Patio Bellavista': { comuna: 'Providencia' },
+  BordeRío: { comuna: 'Vitacura', alias: ['Borde Río'] },
   Lonquén: { comuna: 'Talagante' },
   'Santiago Centro': { comuna: 'Santiago' },
   'Puerto Natales': { comuna: 'Natales' },
@@ -76,6 +92,25 @@ const ALIAS_REGION: Record<string, Region> = {
   magallanes: 'Magallanes',
 };
 
+/**
+ * Regiones nombradas "sueltas", sin el prefijo "R." / "Región de".
+ * Santander entrega la cobertura así: "Metropolitana, O'Higgins, Ñuble, Valparaíso".
+ * Se usa solo sobre campos que se sabe que son de región, porque varios nombres
+ * (Valparaíso, Antofagasta, Maule…) son también comunas.
+ */
+export function detectarRegiones(textos: string[]): Region[] {
+  const regiones = new Set<Region>();
+  for (const texto of textos) {
+    const t = normalizar(texto ?? '');
+    if (!t) continue;
+    for (const [alias, region] of Object.entries(ALIAS_REGION)) {
+      const re = new RegExp(`(^|[^a-z0-9])${escapar(alias)}(?=$|[^a-z0-9])`);
+      if (re.test(t)) regiones.add(region);
+    }
+  }
+  return [...regiones];
+}
+
 export function normalizar(s: string): string {
   return s
     .normalize('NFD')
@@ -90,6 +125,11 @@ export interface Localidad {
   comuna: string;
   region: Region;
   sector?: string;
+  /**
+   * Calle y número del local, cuando el banco la entrega (BancoEstado, en
+   * Sabores). Permite ubicar el pin aunque el local no esté en OSM por su nombre.
+   */
+  direccion?: string;
 }
 
 interface Patron {

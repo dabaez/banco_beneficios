@@ -1,8 +1,8 @@
 {
-  "name": "bci-beneficios",
+  "name": "banco-beneficios",
   "private": true,
   "type": "module",
-  "description": "Visor no oficial de beneficios BCI Plus",
+  "description": "Visor no oficial de beneficios de bancos chilenos",
   "engines": {
     "node": ">=22.18"
   },
@@ -13,6 +13,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.2",
+    "playwright": "^1.49.0",
     "typescript": "^5.9.3"
   }
 }

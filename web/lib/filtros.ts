@@ -1,9 +1,13 @@
-import type { Beneficio, DiaSemana, TipoBeneficio } from './tipos';
+import { BANCOS, IDS_BANCOS, esBancoId } from './tipos';
+import type { Preferencias } from './preferencias';
+import type { BancoId, Beneficio, DiaSemana, TipoBeneficio } from './tipos';
 
 export type Orden = 'descuento' | 'alfabetico' | 'vence' | 'nuevos' | 'cercania' | 'relevancia';
 
 export interface Filtros {
   q: string;
+  /** Banco elegido en el encabezado: el sitio muestra un banco a la vez. */
+  banco: BancoId;
   categorias: string[];
   comercios: string[];
   tarjetas: string[];
@@ -21,6 +25,7 @@ export interface Filtros {
 
 export const FILTROS_INICIALES: Filtros = {
   q: '',
+  banco: IDS_BANCOS[0],
   categorias: [],
   comercios: [],
   tarjetas: [],
@@ -35,8 +40,11 @@ export const FILTROS_INICIALES: Filtros = {
   orden: 'descuento',
 };
 
-export const TARJETAS_BASE = ['Crédito', 'Débito', 'Prepago'];
-export const TARJETAS_PREMIUM = ['Visa Infinite', 'Visa Signature', 'Mastercard Black', 'Platinum'];
+/** Tarjetas de un banco, aplanadas, para construir el filtro. */
+export function tarjetasDe(banco: BancoId): string[] {
+  const { base, premium } = BANCOS[banco].tarjetas;
+  return [...base, ...premium];
+}
 
 export function normalizar(s: string): string {
   return s
@@ -67,19 +75,22 @@ export function estaVigente(b: Beneficio, ahora: Date): boolean {
 
 /**
  * "Mis tarjetas": el usuario marca las que tiene.
- * - Si la oferta exige un nivel premium (Infinite, Signature, Black, Platinum),
+ * - Si la oferta exige un nivel premium (Infinite, Black, American Express…),
  *   el usuario debe tener alguno de ellos.
  * - Si la oferta indica crédito/débito, debe tener alguno de esos
  *   (tener una premium implica tener crédito).
+ * Se evalúa contra las tarjetas del banco de la oferta.
  */
 function cumpleTarjetas(b: Beneficio, seleccion: string[]): boolean {
   if (!seleccion.length) return true;
-  const premiumUsuario = seleccion.filter((t) => TARJETAS_PREMIUM.includes(t));
-  const baseUsuario = new Set(seleccion.filter((t) => TARJETAS_BASE.includes(t)));
+  const { base, premium } = BANCOS[b.banco].tarjetas;
+
+  const premiumUsuario = seleccion.filter((t) => (premium as readonly string[]).includes(t));
+  const baseUsuario = new Set(seleccion.filter((t) => (base as readonly string[]).includes(t)));
   if (premiumUsuario.length) baseUsuario.add('Crédito');
 
-  const premiumOferta = b.tarjetas.filter((t) => TARJETAS_PREMIUM.includes(t));
-  const baseOferta = b.tarjetas.filter((t) => TARJETAS_BASE.includes(t));
+  const premiumOferta = b.tarjetas.filter((t) => (premium as readonly string[]).includes(t));
+  const baseOferta = b.tarjetas.filter((t) => (base as readonly string[]).includes(t));
 
   if (premiumOferta.length && !premiumOferta.some((t) => premiumUsuario.includes(t))) return false;
   if (baseOferta.length && !baseOferta.some((t) => baseUsuario.has(t))) return false;
@@ -103,6 +114,7 @@ export function aplicarFiltros(
   return lista
     .filter(({ b, texto }) => {
       if (!estaVigente(b, ahora)) return false;
+      if (b.banco !== f.banco) return false;
       if (terminos.length && !terminos.every((t) => texto.includes(t))) return false;
       if (f.categorias.length && !b.categorias.some((c) => f.categorias.includes(c))) return false;
       if (f.comercios.length && !f.comercios.includes(b.comercio.nombre)) return false;
@@ -157,6 +169,11 @@ export function ordenar(lista: Beneficio[], orden: Orden, punto: { lat: number; 
   }
 }
 
+/** Filtros en blanco, conservando lo que no es un filtro (banco y orden). */
+export function filtrosLimpios(f: Filtros): Filtros {
+  return { ...FILTROS_INICIALES, banco: f.banco, orden: f.orden };
+}
+
 export function contarFiltrosActivos(f: Filtros): number {
   return (
     (f.q ? 1 : 0) +
@@ -181,6 +198,8 @@ const LISTAS = ['categorias', 'comercios', 'tarjetas', 'tipos', 'comunas'] as co
 
 export function filtrosAUrl(f: Filtros): string {
   const p = new URLSearchParams();
+  // Siempre en la URL: un enlace compartido abre el banco de quien lo compartió.
+  p.set('banco', f.banco);
   if (f.q) p.set('q', f.q);
   for (const k of LISTAS) if (f[k].length) p.set(k, f[k].join('|'));
   if (f.descuentoMin) p.set('min', String(f.descuentoMin));
@@ -194,9 +213,17 @@ export function filtrosAUrl(f: Filtros): string {
   return s ? `?${s}` : '';
 }
 
-export function filtrosDesdeUrl(search: string): Filtros {
+/**
+ * Lee los filtros de la URL. Lo que la URL no trae se completa con las
+ * preferencias guardadas: banco, tarjetas de ese banco y filtros de ubicación.
+ * Así un enlace compartido manda, pero abrir el sitio "limpio" recupera lo último.
+ */
+export function filtrosDesdeUrl(search: string, prefs?: Preferencias): Filtros {
   const p = new URLSearchParams(search);
   const f: Filtros = { ...FILTROS_INICIALES };
+  const banco = p.get('banco');
+  if (banco && esBancoId(banco)) f.banco = banco;
+  else if (prefs?.banco) f.banco = prefs.banco;
   f.q = p.get('q') ?? '';
   for (const k of LISTAS) {
     const v = p.get(k);
@@ -212,5 +239,14 @@ export function filtrosDesdeUrl(search: string): Filtros {
   f.soloConMapa = p.get('mapa') === '1';
   const orden = p.get('orden') as Orden | null;
   if (orden && ['descuento', 'alfabetico', 'vence', 'nuevos', 'relevancia'].includes(orden)) f.orden = orden;
+
+  if (!p.has('tarjetas')) f.tarjetas = prefs?.tarjetas[f.banco] ?? [];
+  // Solo tarjetas que existen en ese banco (lo guardado puede ser de otra versión).
+  const validas = tarjetasDe(f.banco);
+  f.tarjetas = f.tarjetas.filter((t) => validas.includes(t));
+
+  // La ubicación se trata como un bloque: si la URL trae alguna parte, manda la URL.
+  const urlTraeUbicacion = ['region', 'comunas', 'nacionales', 'mapa'].some((k) => p.has(k));
+  if (!urlTraeUbicacion && prefs?.ubicacion) Object.assign(f, prefs.ubicacion);
   return f;
 }

@@ -16,4 +16,4 @@ jobs:
           host: ${{ secrets.HOST }}
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: cd bci_beneficios && git pull && ./scripts/deploy.sh full
+          script: cd banco_beneficios && git pull && ./scripts/deploy.sh full

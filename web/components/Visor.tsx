@@ -10,13 +10,22 @@ import {
   estaVigente,
   filtrosAUrl,
   filtrosDesdeUrl,
+  filtrosLimpios,
   ordenar,
   textoBuscable,
   type Filtros,
   type Orden,
 } from '@/lib/filtros';
 import { DIAS_CORTOS, ETIQUETA_TIPO, formatoFecha } from '@/lib/formato';
-import type { Beneficio, DatasetBeneficios, DiaSemana } from '@/lib/tipos';
+import {
+  BANCOS,
+  IDS_BANCOS,
+  type BancoId,
+  type Beneficio,
+  type DatasetBeneficios,
+  type DiaSemana,
+} from '@/lib/tipos';
+import { guardarPreferencias, leerPreferencias } from '@/lib/preferencias';
 import DetalleBeneficio from './DetalleBeneficio';
 import PanelFiltros, { type Facetas } from './PanelFiltros';
 import TarjetaBeneficio from './TarjetaBeneficio';
@@ -31,7 +40,7 @@ const ORDENES: [Orden, string][] = [
   ['alfabetico', 'Comercio A–Z'],
   ['vence', 'Vencen antes'],
   ['nuevos', 'Más recientes'],
-  ['relevancia', 'Destacados por Bci'],
+  ['relevancia', 'Destacados por el banco'],
   ['cercania', 'Más cerca de mí'],
 ];
 
@@ -70,11 +79,16 @@ export default function Visor() {
   useEffect(() => {
     // Estado que depende del navegador: se inicializa tras montar para no romper la hidratación.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setF(filtrosDesdeUrl(window.location.search));
+    setF(filtrosDesdeUrl(window.location.search, leerPreferencias()));
     setAhora(new Date());
     fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/beneficios.json`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setData)
+      .then((d: DatasetBeneficios) => {
+        setData(d);
+        // Si el banco elegido no tiene datos (ej. su scraper nunca corrió), caer al primero que sí.
+        const conDatos = IDS_BANCOS.filter((id) => d.beneficios.some((b) => b.banco === id));
+        setF((prev) => (conDatos.length && !conDatos.includes(prev.banco) ? { ...prev, banco: conDatos[0] } : prev));
+      })
       .catch((e) => setError(String(e)));
   }, []);
 
@@ -83,7 +97,31 @@ export default function Visor() {
     window.history.replaceState(null, '', `${window.location.pathname}${filtrosAUrl(f)}`);
   }, [f, ahora]);
 
+  // Recordar banco, tarjetas (por banco) y ubicación para la próxima visita.
+  const { banco, tarjetas, region, comunas, incluirNacionales, soloConMapa } = f;
+  useEffect(() => {
+    if (!ahora) return;
+    const prefs = leerPreferencias();
+    guardarPreferencias({
+      banco,
+      tarjetas: { ...prefs.tarjetas, [banco]: tarjetas },
+      ubicacion: { region, comunas, incluirNacionales, soloConMapa },
+    });
+  }, [ahora, banco, tarjetas, region, comunas, incluirNacionales, soloConMapa]);
+
   const set = useCallback((cambios: Partial<Filtros>) => setF((prev) => ({ ...prev, ...cambios })), []);
+
+  // Categorías y comercios son propios de cada banco: se limpian al cambiar.
+  // Las tarjetas también, pero se recuperan las que el usuario marcó antes en ese banco.
+  const cambiarBanco = (nuevo: BancoId) => {
+    if (nuevo === f.banco) return;
+    set({ banco: nuevo, categorias: [], comercios: [], tarjetas: leerPreferencias().tarjetas[nuevo] ?? [] });
+  };
+
+  const bancosDisponibles = useMemo(
+    () => (data ? IDS_BANCOS.filter((id) => data.beneficios.some((b) => b.banco === id)) : IDS_BANCOS),
+    [data],
+  );
 
   const indice = useMemo(
     () => (data && ahora ? data.beneficios.filter((b) => estaVigente(b, ahora)).map((b) => ({ b, texto: textoBuscable(b) })) : []),
@@ -98,10 +136,13 @@ export default function Visor() {
 
   // Conteos por faceta: cada una se calcula con el resto de los filtros aplicados.
   const facetas = useMemo<Facetas>(() => {
-    if (!ahora) return { categorias: [], comercios: [], regiones: [], comunas: [], tipos: [] };
+    if (!ahora) return { categorias: [], comercios: [], regiones: [], comunas: [], tipos: [], tarjetas: [] };
     const sin = (cambios: Partial<Filtros>) => aplicarFiltros(indice, { ...fDiferido, ...cambios }, ahora);
     const porCategoria = sin({ categorias: [] });
-    const todasCategorias = new Set(indice.flatMap(({ b }) => b.categorias));
+    // Categorías sin resultados se muestran deshabilitadas, pero solo las del banco elegido.
+    const todasCategorias = new Set(
+      indice.filter(({ b }) => b.banco === fDiferido.banco).flatMap(({ b }) => b.categorias),
+    );
     const categorias = contar(porCategoria.flatMap((b) => b.categorias));
     for (const c of todasCategorias) if (!categorias.some(([x]) => x === c)) categorias.push([c, 0]);
 
@@ -117,6 +158,7 @@ export default function Visor() {
         ]),
       ),
       tipos: contar(sin({ tipos: [] }).map((b) => b.tipo)),
+      tarjetas: [...new Set(indice.filter(({ b }) => b.banco === fDiferido.banco).flatMap(({ b }) => b.tarjetas))],
     };
   }, [indice, fDiferido, ahora]);
 
@@ -182,10 +224,28 @@ export default function Visor() {
       {/* Encabezado */}
       <header className="sticky top-0 z-[1100] border-b border-line bg-surface/90 backdrop-blur">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 lg:px-6">
-          <div className="mr-auto flex items-baseline gap-2">
-            <h1 className="text-lg font-bold tracking-tight">
-              Beneficios <span className="text-accent">Bci</span>
-            </h1>
+          <div className="mr-auto flex items-center gap-3">
+            <h1 className="text-lg font-bold tracking-tight">Beneficios</h1>
+            {/* Invisible hasta montar: evita mostrar el banco por defecto antes de leer el guardado. */}
+            <label className={`relative ${ahora ? '' : 'invisible'}`}>
+              <span className="sr-only">Banco</span>
+              <span
+                className="pointer-events-none absolute left-3 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full"
+                style={{ background: BANCOS[f.banco].color }}
+                aria-hidden
+              />
+              <select
+                value={f.banco}
+                onChange={(e) => cambiarBanco(e.target.value as BancoId)}
+                className="rounded-full bg-surface-2 py-2 pl-7 pr-3 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-accent"
+              >
+                {bancosDisponibles.map((id) => (
+                  <option key={id} value={id}>
+                    {BANCOS[id].nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
             <span className="hidden text-xs text-muted sm:inline">visor no oficial</span>
           </div>
 
@@ -322,7 +382,7 @@ export default function Visor() {
                 <p className="font-semibold">Ningún beneficio coincide con estos filtros.</p>
                 <button
                   type="button"
-                  onClick={() => set({ ...FILTROS_INICIALES, orden: f.orden })}
+                  onClick={() => set(filtrosLimpios(f))}
                   className="mt-3 text-sm font-medium text-accent hover:underline"
                 >
                   Limpiar filtros
@@ -347,9 +407,21 @@ export default function Visor() {
             )}
 
             <footer className="mt-10 border-t border-line pt-4 text-xs leading-relaxed text-muted">
-              Proyecto personal y <strong>no oficial</strong>, sin relación con Banco Bci. Los datos se obtienen
-              periódicamente de la información pública de beneficios BCI Plus y pueden estar desactualizados; confirma
-              siempre las condiciones en los canales oficiales. Las ubicaciones se estiman con{' '}
+              Proyecto personal y <strong>no oficial</strong>, sin relación con ningún banco. Los datos se obtienen
+              periódicamente de la información pública de beneficios de{' '}
+              {Object.values(BANCOS).map((b, i, a) => (
+                <span key={b.nombre}>
+                  <a className="underline" href={b.sitio} target="_blank" rel="noreferrer">
+                    {b.nombre}
+                  </a>
+                  {i < a.length - 2 ? ', ' : i === a.length - 2 ? ' y ' : ''}
+                </span>
+              ))}{' '}
+              y pueden estar desactualizados; confirma siempre las condiciones en los canales oficiales.
+              {data?.bancos.some((b) => b.error) && (
+                <> Última actualización con problemas en: {data.bancos.filter((b) => b.error).map((b) => b.nombre).join(', ')}.</>
+              )}{' '}
+              Las ubicaciones se estiman con{' '}
               <a className="underline" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
                 OpenStreetMap
               </a>{' '}

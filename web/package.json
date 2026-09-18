@@ -1,9 +1,9 @@
 {
-  "name": "bci-beneficios-web",
+  "name": "banco-beneficios-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/copiar-datos.mjs && next dev",
+    "dev": "node scripts/copiar-datos.mjs && next dev -H localhost",
     "build": "node scripts/copiar-datos.mjs && next build",
     "lint": "eslint"
   },

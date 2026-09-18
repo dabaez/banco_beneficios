@@ -8,9 +8,9 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Beneficios con tarjetas Bci · visor no oficial",
+  title: "Beneficios bancarios · visor no oficial",
   description:
-    "Explora los beneficios de BCI Plus con filtros combinables, orden por descuento y mapa. Proyecto personal, no oficial ni afiliado a Banco Bci.",
+    "Explora los beneficios de tarjetas Bci, Santander y BancoEstado con filtros combinables, orden por descuento y mapa. Proyecto personal, no oficial ni afiliado a ningún banco.",
 };
 
 export const viewport: Viewport = {

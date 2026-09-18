@@ -1,9 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { FILTROS_INICIALES, TARJETAS_BASE, TARJETAS_PREMIUM, normalizar, type Filtros } from '@/lib/filtros';
+import { filtrosLimpios, normalizar, tarjetasDe, type Filtros } from '@/lib/filtros';
 import { DIAS_CORTOS, ETIQUETA_TIPO, ORDEN_DIAS } from '@/lib/formato';
-import type { DiaSemana, TipoBeneficio } from '@/lib/tipos';
+import { BANCOS, type DiaSemana, type TipoBeneficio } from '@/lib/tipos';
 
 export interface Facetas {
   categorias: [string, number][];
@@ -11,6 +11,8 @@ export interface Facetas {
   regiones: [string, number][];
   comunas: [string, number][];
   tipos: [TipoBeneficio, number][];
+  /** Tarjetas que aparecen en alguna oferta vigente del banco: las demás no filtran nada. */
+  tarjetas: string[];
 }
 
 interface Props {
@@ -184,13 +186,15 @@ export default function PanelFiltros({ f, set, facetas, hoy }: Props) {
         )}
       </Seccion>
 
-      <Seccion titulo="Mis tarjetas Bci">
+      <Seccion titulo={`Mis tarjetas ${BANCOS[f.banco].nombre}`}>
         <div className="flex flex-wrap gap-1.5">
-          {[...TARJETAS_BASE.filter((t) => t !== 'Prepago'), ...TARJETAS_PREMIUM].map((t) => (
-            <Chip key={t} activo={f.tarjetas.includes(t)} onClick={() => set({ tarjetas: alternar(f.tarjetas, t) })}>
-              {t}
-            </Chip>
-          ))}
+          {tarjetasDe(f.banco)
+            .filter((t) => facetas.tarjetas.includes(t) || f.tarjetas.includes(t))
+            .map((t) => (
+              <Chip key={t} activo={f.tarjetas.includes(t)} onClick={() => set({ tarjetas: alternar(f.tarjetas, t) })}>
+                {t}
+              </Chip>
+            ))}
         </div>
         <p className="mt-1.5 text-xs text-muted">
           Marca las que tienes: se ocultan los beneficios exclusivos de otras tarjetas.
@@ -243,7 +247,7 @@ export default function PanelFiltros({ f, set, facetas, hoy }: Props) {
       <button
         type="button"
         onClick={() => {
-          set({ ...FILTROS_INICIALES, orden: f.orden });
+          set(filtrosLimpios(f));
           setBusquedaComercio('');
         }}
         className="mt-2 w-full rounded-lg py-2 text-sm font-medium text-muted ring-1 ring-line hover:text-ink"

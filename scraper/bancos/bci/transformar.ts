@@ -1,5 +1,7 @@
-import type { Alcance, Beneficio, DiaApi, DiaSemana, OfertaApi, TipoBeneficio } from '../shared/beneficio.ts';
-import { detectarLocalidades, normalizar, type Localidad } from './localidades.ts';
+import type { Alcance, DiaSemana, TipoBeneficio } from '../../../shared/beneficio.ts';
+import { detectarLocalidades, normalizar } from '../../localidades.ts';
+import type { BeneficioSinGeo } from '../../tipos.ts';
+import type { DiaApi, OfertaApi } from './tipos.ts';
 
 const DIAS: Record<DiaApi, DiaSemana> = {
   DOMINGO: 0,
@@ -70,21 +72,16 @@ function detectarTarjetas(o: OfertaApi): string[] {
   const agregar = (nombre: string, re: RegExp) => re.test(sinExclusiones) && tarjetas.push(nombre);
   agregar('Crédito', /credito/);
   agregar('Débito', /debito/);
-  agregar('Prepago', /prepago/);
-  agregar('Visa Infinite', /infinit/);
-  agregar('Visa Signature', /signature/);
-  agregar('Mastercard Black', /black/);
-  agregar('Platinum', /platinum/);
+  // Los textos de BCI traen erratas: "Infinte", "Siganture", "Balck", "Platinium".
+  agregar('Visa Infinite', /\binfin/);
+  agregar('Visa Signature', /\bsig(?:na|an)ture/);
+  agregar('Mastercard Black', /\bb(?:la|al)ck\b/);
+  agregar('Platinum', /\bplatini?um/);
   for (const t of o.deal.total?.tarjetas ?? []) {
     if (t.tipo === 'credito' && !tarjetas.includes('Crédito')) tarjetas.push('Crédito');
     if (t.tipo === 'debito' && !tarjetas.includes('Débito')) tarjetas.push('Débito');
   }
   return tarjetas;
-}
-
-export interface BeneficioSinGeo {
-  beneficio: Omit<Beneficio, 'ubicaciones'>;
-  localidades: Localidad[];
 }
 
 export function transformar(o: OfertaApi): BeneficioSinGeo {
@@ -129,7 +126,9 @@ export function transformar(o: OfertaApi): BeneficioSinGeo {
 
   return {
     beneficio: {
-      id: o.id,
+      banco: 'bci',
+      // Prefijo de banco: los ids deben ser únicos en el dataset combinado.
+      id: `bci:${o.id}`,
       slug: o.slug,
       titulo: limpiar(o.titulo),
       subtitulo: limpiar(o.subtitulo),

@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Paleta propia (neutral, no imita la marca de BCI). */
+/* Paleta propia (neutral, no imita la marca de ningún banco). */
 :root {
   --bg: #f5f6f8;
   --surface: #ffffff;

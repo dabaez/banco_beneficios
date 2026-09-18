@@ -3,15 +3,20 @@
 # deploy.sh — compila el visor y lo publica en $WWW_DIR.
 #
 #   ./scripts/deploy.sh          # full: git pull + instalación limpia + build + publicar
-#   ./scripts/deploy.sh datos    # cron: re-scrapea BCI y reemplaza solo beneficios.json
+#   ./scripts/deploy.sh datos    # cron: re-scrapea los bancos y reemplaza solo beneficios.json
 #
 # El sitio es un export estático de Next.js que carga beneficios.json al abrirse,
 # así que actualizar los datos no requiere recompilar: el modo `datos` solo
 # corre el scraper y copia el JSON nuevo sobre el publicado.
 #
 # data/beneficios.json y data/geocache.json no se versionan: viven en el servidor.
-# Si el scraper falla (ej. 401 porque rotaron la key), el sitio publicado queda
-# intacto con los datos anteriores.
+# Si falla un banco (ej. 401 porque BCI rotó la key, o Akamai bloquea a
+# Santander), el scraper conserva los datos anteriores de ese banco, publica el
+# resto y sale con código 3. Si falla todo, el sitio publicado queda intacto.
+#
+# Santander y BancoEstado necesitan un navegador con ventana (Akamai bloquea headless), así que
+# en un servidor sin pantalla el scraper se envuelve en xvfb-run:
+#   apt install xvfb && pnpm install && pnpm exec playwright install --with-deps chromium
 #
 # Ambos modos toman un lock exclusivo para que un cron y un deploy nunca se crucen.
 #
@@ -21,7 +26,7 @@ set -euo pipefail
 export PATH="$PATH:/usr/local/bin:/usr/bin:$HOME/.local/share/pnpm:$HOME/.nvm/versions/node/current/bin"
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WWW_DIR="${WWW_DIR:-/var/www/bci-beneficios}"
+WWW_DIR="${WWW_DIR:-/var/www/banco-beneficios}"
 MODE="${1:-full}"
 
 cd "$REPO_DIR"
@@ -58,6 +63,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Corre el scraper. Código 3 = algún banco falló pero el dataset se escribió
+# con los datos previos de ese banco: se publica igual.
+scrapear() {
+  local cmd=(node scraper)
+  if [ -z "${DISPLAY:-}" ] && command -v xvfb-run >/dev/null; then
+    cmd=(xvfb-run -a "${cmd[@]}")
+  fi
+  local status=0
+  "${cmd[@]}" || status=$?
+  if [ "$status" -eq 3 ]; then
+    echo "⚠ Algún banco falló; se publican los demás (ver arriba)." >&2
+  elif [ "$status" -ne 0 ]; then
+    return "$status"
+  fi
+}
+
 publicar_datos() {
   mkdir -p "$WWW_DIR"
   # copia + mv: nginx nunca sirve un JSON a medio escribir
@@ -71,11 +92,13 @@ case "$MODE" in
     # desde cero para que un lockfile actualizado no deje paquetes viejos
     rm -rf web/node_modules web/.next web/out
     (cd web && pnpm install --frozen-lockfile)
+    # Dependencias del scraper (Playwright para Santander y BancoEstado).
+    pnpm install --frozen-lockfile
 
     # Primer deploy (o datos borrados): generar los datos antes del build.
     if [ ! -f data/beneficios.json ]; then
       echo "--- data/beneficios.json no existe: ejecutando scraper"
-      node scraper
+      scrapear
     fi
 
     (cd web && pnpm build)
@@ -86,7 +109,7 @@ case "$MODE" in
     ;;
 
   datos)
-    node scraper
+    scrapear
     publicar_datos
     ;;
 

@@ -1,4 +1,5 @@
-import type { OfertaApi, RespuestaOfertasApi } from '../shared/beneficio.ts';
+import { ErrorFuente } from '../../tipos.ts';
+import type { OfertaApi, RespuestaOfertasApi } from './tipos.ts';
 
 export const API_URL = 'https://api.bciplus.cl/bff-loyalty-beneficios/v1/offers';
 const ITEMS_POR_PAGINA = 100;
@@ -10,8 +11,6 @@ const MAX_PAGINAS = 50;
  * Se puede sobreescribir con BCI_SUBSCRIPTION_KEY si la rotan.
  */
 const SUBSCRIPTION_KEY_FALLBACK = 'fa981752762743668413b68821a43840';
-
-export class ErrorSubscriptionKey extends Error {}
 
 function headers(): Record<string, string> {
   return {
@@ -29,11 +28,12 @@ async function traerPagina(pagina: number): Promise<RespuestaOfertasApi> {
   const res = await fetch(url, { headers: headers() });
 
   if (res.status === 401 || res.status === 403) {
-    throw new ErrorSubscriptionKey(
+    throw new ErrorFuente(
+      'bci',
       `La API respondió ${res.status}: probablemente rotaron la subscription key.\n` +
         '  1. Abre https://www.bci.cl/beneficios con las DevTools (pestaña Network).\n' +
         '  2. Busca la request a api.bciplus.cl/.../offers y copia el header "Ocp-Apim-Subscription-Key".\n' +
-        '  3. Ponla en BCI_SUBSCRIPTION_KEY (en el droplet: archivo .env en la raíz del repo) o actualiza el fallback en scraper/api.ts.',
+        '  3. Ponla en BCI_SUBSCRIPTION_KEY (en el droplet: archivo .env en la raíz del repo) o actualiza el fallback en scraper/bancos/bci/api.ts.',
     );
   }
   if (!res.ok) {
