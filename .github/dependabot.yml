@@ -1,0 +1,42 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directories:
+      - "/"    # scraper: playwright, typescript, @types/node
+      - "/web" # visor: next, react, leaflet, eslint, tailwind
+    schedule:
+      interval: "weekly"
+    # Don't pick up a release until it has been public for 5 days, so a
+    # compromised or broken publish has time to be caught and yanked.
+    # Does not apply to security updates.
+    cooldown:
+      default-days: 5
+    groups:
+      patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+      minor-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+      # Majors are left ungrouped so each one gets its own PR to review.
+      # pr-ci.yml auto-merges this group by name; don't rename it without
+      # updating the workflow.
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+    pull-request-branch-name:
+      separator: "-"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 5
+    pull-request-branch-name:
+      separator: "-"
