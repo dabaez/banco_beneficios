@@ -1,0 +1,88 @@
+name: PR CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Same install and build as scripts/deploy.sh (plus typecheck and lint), so a
+  # PR is known to build before it reaches main.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No "packageManager" in package.json: adding one would also change the
+      # pnpm that deploy.sh runs on the server, so the version is pinned here.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22 # deploy.sh requires >= 22.18
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
+
+      - run: pnpm lint
+        working-directory: web
+
+      # data/beneficios.json is not tracked and the site fetches it at runtime,
+      # so an empty dataset is enough to build.
+      - name: pnpm build
+        run: |
+          mkdir -p data
+          echo '{"generadoEn":"1970-01-01T00:00:00Z","bancos":[],"total":0,"beneficios":[]}' > data/beneficios.json
+          cd web && pnpm build
+
+  # Merges Dependabot npm PRs that are patch bumps or security updates once the
+  # build has passed. Minor/major bumps and GitHub Actions bumps are left open
+  # for manual review.
+  # `needs` is what makes this wait on CI: any new PR check must be added to
+  # this workflow and listed here.
+  dependabot-auto-merge:
+    needs: build
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      # npm-security is the security-updates group in dependabot.yml.
+      # --match-head-commit refuses the merge if the PR changed after the build.
+      # Merging with GITHUB_TOKEN does not trigger deploy.yml; the change goes
+      # live on the next push to main.
+      - if: >-
+          steps.metadata.outputs.package-ecosystem == 'npm_and_yarn' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.dependency-group == 'npm-security')
+        run: gh pr merge "$PR_URL" --squash --delete-branch --match-head-commit "$HEAD_SHA"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
