@@ -29,6 +29,12 @@ updates:
         applies-to: security-updates
         patterns:
           - "*"
+    ignore:
+      # The types must match the Node the server runs (22), not the latest
+      # Node release. Bump the major by hand when the server's Node changes.
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
     pull-request-branch-name:
       separator: "-"
 
