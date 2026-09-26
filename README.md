@@ -11,7 +11,8 @@ scraper/              ingesta + geocodificación (Node 22, TypeScript sin build)
   bancos/<id>/        un adaptador por banco: api.ts (obtener), transformar.ts (normalizar), tipos.ts (crudo)
 data/                 beneficios.json y geocache.json — generados, NO versionados
 web/                  Next.js (App Router, export estático) + Tailwind + react-leaflet
-scripts/deploy.sh     build y publicación del sitio (modos full / datos)
+scripts/ship.sh       build del visor y publicación en el droplet
+deploy/               lo que corre en el droplet: scrape (scraper + publicar datos) y su timer de systemd
 ```
 
 ## Datos
@@ -43,7 +44,7 @@ caído (queda marcado con `error` en `bancos[]` del JSON) y sale con código 3.
 - **Requiere navegador con ventana.** El dominio está detrás de Akamai Bot Manager: `fetch`,
   curl e incluso Chromium headless reciben 403. El adaptador abre la página con Playwright
   (headed) y pide el JSON desde ella. En un servidor sin pantalla: `xvfb-run -a node scraper`
-  (`deploy.sh` lo hace solo si encuentra `xvfb-run`).
+  (`deploy/scrape` lo hace así en el droplet).
 - El CMS deja vacíos `discount`, `start_date`, `end_date` y las coordenadas. El porcentaje se
   saca de la "bajada" (`"40% dcto. todos los miércoles."`) y la vigencia del texto libre
   (`"Hasta el 30 de septiembre de 2026"`), por eso se marca `fechaTerminoAproximada`. Días,
@@ -149,34 +150,45 @@ no requiere recompilar.
 
 ## Deploy
 
-El sitio es estático: `scripts/deploy.sh` compila y copia `web/out` al directorio que sirve el
-servidor web. Tiene dos modos (ver los comentarios del script):
+Publicar el sitio y actualizar los datos son dos procesos separados. El visor carga
+`beneficios.json` al abrirse, así que se compila sin datos y el scraping (que tarda) nunca es
+parte de un deploy.
 
-- `full` — instala, compila y publica todo. Es lo que ejecuta el workflow de GitHub Actions al
-  pushear a `main` (necesita los secrets `HOST` y `SSH_PRIVATE_KEY`).
-- `datos` — re-scrapea los bancos y reemplaza solo `beneficios.json` en el sitio publicado, sin
-  recompilar. Pensado para correr por cron:
+- **Sitio** — `scripts/ship.sh` compila `web/` y sube la release al droplet por ssh
+  (`receive-site`, del repo `dabaez/droplet-infra`). Es lo que corre el workflow de GitHub
+  Actions al pushear a `main`, y también se puede correr a mano:
 
-  ```cron
-  0 6 1 * * /ruta/al/repo/scripts/deploy.sh datos >> /var/log/banco-beneficios.log 2>&1
+  ```bash
+  DEPLOY_TARGET=banco-deploy scripts/ship.sh           # compilar y publicar
+  DEPLOY_TARGET=banco-deploy scripts/ship.sh rollback  # volver a la release anterior
+  DEPLOY_TARGET=banco-deploy scripts/ship.sh releases  # listar releases
   ```
 
-`data/` vive solo en el servidor. Si falla un banco, se publican los demás con los datos previos
-del caído; si falla todo, el sitio sigue sirviendo los datos anteriores. El error queda en el log.
+  Necesita los secrets `DEPLOY_TARGET`, `DEPLOY_SSH_KEY` y `DEPLOY_KNOWN_HOSTS`, y la variable
+  `BASE_PATH` si el sitio se sirve bajo un subdirectorio.
+
+- **Datos** — `deploy/scrape` corre el scraper en el droplet y publica el `beneficios.json`
+  nuevo sin recompilar. Lo lanza el timer `deploy/systemd/banco-beneficios-scrape.timer`
+  (semanal), que cada deploy instala como unit del usuario del sitio; para cambiar la
+  frecuencia basta editarlo y pushear. Para correrlo ya: `scripts/ship.sh scrape`.
+
+Los datos viven en el droplet, fuera de las releases: `~/data/` (estado del scraper:
+`beneficios.json` y `geocache.json`) y `~/published/beneficios.json` (lo que se sirve; el
+`beneficios.json` de cada release es un link a ese archivo). Si falla un banco, se publican los
+demás con los datos previos del caído (el servicio termina con código 3); si falla todo, el
+sitio sigue sirviendo los datos anteriores. Logs, como root:
+`journalctl _SYSTEMD_USER_UNIT=banco-beneficios-scrape.service`.
 
 Santander y BancoEstado usan Playwright (y Falabella como respaldo si Cloudflare bloquea la IP
-del servidor). `deploy.sh full` descarga el Chromium que corresponde a la versión del lockfile
-(~300 MB, en `~/.cache/ms-playwright`) y, si le faltan librerías del sistema o no hay `xvfb-run`,
-los instala (`playwright install-deps chromium` y `apt install xvfb`) cuando corre como root; si no,
-solo avisa en el log.
+del servidor). `deploy/scrape` descarga el Chromium que corresponde a la versión del lockfile
+(~300 MB, en `~/.cache/ms-playwright` del usuario del sitio). Las librerías del sistema y
+`xvfb` se instalan una vez como root: `apt install xvfb` y `npx playwright install-deps chromium`.
 
-Variables opcionales, en un `.env` en la raíz del repo: `BCI_SUBSCRIPTION_KEY`,
-`NOMINATIM_USER_AGENT`, `NOMINATIM_EMAIL`, `WWW_DIR` (destino de la publicación) y `BASE_PATH`
-(si el sitio se sirve bajo un subdirectorio).
+Variables opcionales del scraper, en `~/scraper.env` del usuario del sitio en el droplet:
+`BCI_SUBSCRIPTION_KEY`, `NOMINATIM_USER_AGENT` y `NOMINATIM_EMAIL`.
 
-Nota: la mayoría de las ofertas vence en menos de un mes, así que un cron mensual deja pocas
-vigentes al final del ciclo. Semanal (`0 6 * * 1`) cuesta lo mismo: ~4 requests a BCI y una
-visita a Santander por corrida.
+Nota: la mayoría de las ofertas vence en menos de un mes, por eso el timer es semanal: cuesta
+~4 requests a BCI y una visita a Santander por corrida.
 
 ## Extensión futura: Google Places (opcional, de pago)
 

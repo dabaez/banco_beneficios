@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "description": "Visor no oficial de beneficios de bancos chilenos",
+  "packageManager": "pnpm@11.27.1",
   "engines": {
     "node": ">=22.18"
   },

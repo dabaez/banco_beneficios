@@ -4,16 +4,53 @@ on:
   push:
     branches:
       - main
+  # Lets a deploy be re-run by hand, e.g. after a Dependabot merge.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Deploys run one at a time; a newer push waits instead of cancelling one
+# that is halfway through uploading.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
 
 jobs:
+  # Builds the site here without data (it fetches beneficios.json at runtime)
+  # and uploads it; scraping runs separately on the droplet on its own timer
+  # (deploy/scrape). The deploy key can do nothing but publish this site
+  # (see scripts/ship.sh).
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - name: executing remote ssh commands using password
-        uses: appleboy/ssh-action@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          host: ${{ secrets.HOST }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: cd banco_beneficios && git pull && ./scripts/deploy.sh full
+          persist-credentials: false
+
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      # DEPLOY_TARGET is banco-beneficios@<droplet>. DEPLOY_KNOWN_HOSTS is the
+      # droplet's host key line, so the upload can't go to an impostor.
+      # BASE_PATH is a repository variable, only needed if the site is served
+      # under a subdirectory.
+      - name: Build and upload to the droplet
+        env:
+          BASE_PATH: ${{ vars.BASE_PATH }}
+          DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          (umask 077 && printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519)
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          scripts/ship.sh

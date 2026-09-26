@@ -1,0 +1,23 @@
+# Re-scrapea los bancos y publica beneficios.json (deploy/scrape). Lo inicia
+# banco-beneficios-scrape.timer, o `scripts/ship.sh scrape`. receive-site
+# instala ambos como units del usuario banco-beneficios en cada deploy.
+#
+# Logs, como root: journalctl _SYSTEMD_USER_UNIT=banco-beneficios-scrape.service
+
+[Unit]
+Description=banco-beneficios: re-scrapear los bancos y publicar beneficios.json
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/current/app
+# BCI_SUBSCRIPTION_KEY, NOMINATIM_USER_AGENT, NOMINATIM_EMAIL (opcionales).
+EnvironmentFile=-%h/scraper.env
+# node tiene que estar instalado para todo el sistema, en este PATH.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/current/app/deploy/scrape
+# 3 = falló algún banco pero se publicaron los demás.
+SuccessExitStatus=3
+# Tarda, pero si un Chromium se cuelga la corrida no debe bloquear las siguientes.
+TimeoutStartSec=6h
+# Que el scraping no le quite CPU a los sitios.
+Nice=10

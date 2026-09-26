@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+#
+# scrape — re-scrapea los bancos y publica el beneficios.json nuevo, sin
+# recompilar ni desplegar: el sitio lo carga al abrirse.
+#
+# Lo corre deploy/systemd/banco-beneficios-scrape.service (con su timer, o a
+# mano con `scripts/ship.sh scrape`) como el usuario del sitio en el droplet,
+# desde el app/ de la release publicada.
+#
+# Los datos viven fuera de las releases, en el home del usuario, así que un
+# deploy no los toca y el scraper no bloquea deploys:
+#
+#   ~/data/                      estado del scraper: beneficios.json (la corrida
+#                                anterior, de donde salen los datos de un banco
+#                                caído) y geocache.json
+#   ~/published/beneficios.json  lo que sirve el sitio (public/beneficios.json
+#                                de cada release es un link a este archivo)
+#
+# Sale con 3 si falló algún banco: los demás se publican igual, con los datos
+# previos del caído. Con cualquier otro error no se publica nada.
+#
+set -euo pipefail
+
+# El scraper usa type stripping nativo de Node (sin build).
+if ! node -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>22||(a===22&&b>=18)?0:1)'; then
+  echo "✖ Se necesita Node >= 22.18 instalado para todo el sistema (hay $(node --version 2>/dev/null || echo 'ninguno'))." >&2
+  exit 1
+fi
+
+# Santander y BancoEstado necesitan un Chromium con ventana (Akamai bloquea headless).
+if ! command -v xvfb-run >/dev/null; then
+  echo "✖ Falta xvfb-run (como root: apt install xvfb)." >&2
+  exit 1
+fi
+
+# pnpm sale de corepack, en la versión de "packageManager" de package.json.
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+mkdir -p "$HOME/.local/bin"
+corepack enable --install-directory "$HOME/.local/bin" pnpm
+export PATH="$HOME/.local/bin:$PATH"
+
+# Solo quedan los datos. El store se poda mientras node_modules todavía existe,
+# para que la próxima corrida encuentre estos paquetes sin descargarlos.
+cleanup() {
+  pnpm store prune >/dev/null 2>&1 || true
+  rm -rf node_modules
+}
+trap cleanup EXIT
+
+# Playwright, y el Chromium de su versión en el lockfile (no-op si ya está).
+# Si al Chromium le faltan librerías del sistema, Playwright lo dice al
+# lanzarlo; se instalan como root con `npx playwright install-deps chromium`.
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+
+mkdir -p "$HOME/data" "$HOME/published"
+# El scraper lee y escribe <repo>/data.
+ln -sfnT "$HOME/data" data
+
+status=0
+xvfb-run -a node scraper || status=$?
+case "$status" in
+  0) ;;
+  3) echo "⚠ Algún banco falló; se publican los demás (ver arriba)." >&2 ;;
+  *) exit "$status" ;;
+esac
+
+# copia + mv: nginx nunca sirve un JSON a medio escribir
+cp data/beneficios.json "$HOME/published/.beneficios.json.tmp"
+mv "$HOME/published/.beneficios.json.tmp" "$HOME/published/beneficios.json"
+echo "--- publicado ~/published/beneficios.json"
+exit "$status"

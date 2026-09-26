@@ -1,0 +1,11 @@
+[Unit]
+Description=banco-beneficios: re-scrapear los bancos cada semana
+
+[Timer]
+# La mayoría de las ofertas vence en menos de un mes (ver README).
+OnCalendar=Mon *-*-* 06:00:00
+# Si el droplet estaba apagado a la hora, corre apenas vuelva.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

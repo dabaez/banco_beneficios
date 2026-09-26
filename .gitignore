@@ -5,10 +5,9 @@ node_modules/
 web/.next/
 web/out/
 
-# generados en el servidor por el scraper (scripts/deploy.sh datos)
+# generados por el scraper (en el droplet, deploy/scrape)
 data/beneficios.json
 data/geocache.json
-.deploy.lock
 
 # variables de entorno del servidor
 .env
