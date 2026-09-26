@@ -65,8 +65,9 @@ case "$status" in
   *) exit "$status" ;;
 esac
 
-# copia + mv: nginx nunca sirve un JSON a medio escribir
-cp data/beneficios.json "$HOME/published/.beneficios.json.tmp"
+# copia + mv: nginx nunca sirve un JSON a medio escribir. install fija el
+# modo, para que nginx pueda leerlo aunque data/ venga con otros permisos.
+install -m 644 data/beneficios.json "$HOME/published/.beneficios.json.tmp"
 mv "$HOME/published/.beneficios.json.tmp" "$HOME/published/beneficios.json"
 echo "--- publicado ~/published/beneficios.json"
 exit "$status"
