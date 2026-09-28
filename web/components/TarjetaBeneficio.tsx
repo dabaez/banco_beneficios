@@ -3,6 +3,7 @@
 import { memo } from 'react';
 import { diasParaVencer, etiquetaDescuento, formatoPesos, textoDias, textoUbicacion } from '@/lib/formato';
 import type { Beneficio } from '@/lib/tipos';
+import ImagenBeneficio from './ImagenBeneficio';
 
 interface Props {
   b: Beneficio;
@@ -33,10 +34,9 @@ function TarjetaBeneficio({ b, ahora, distanciaKm, activo, onAbrir, onHover, onV
       <button type="button" onClick={() => onAbrir(b)} className="flex flex-1 flex-col text-left">
         <div className="relative aspect-[3/2] w-full overflow-hidden bg-surface-2">
           {b.imagen && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={b.imagen}
-              alt=""
+            <ImagenBeneficio
+              optimizada={b.imagenOptimizada}
+              original={b.imagen}
               loading="lazy"
               className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
             />
@@ -59,8 +59,12 @@ function TarjetaBeneficio({ b, ahora, distanciaKm, activo, onAbrir, onHover, onV
         <div className="flex flex-1 flex-col gap-1.5 p-4">
           <div className="flex items-center gap-2">
             {b.logo && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={b.logo} alt="" loading="lazy" className="h-6 w-6 shrink-0 rounded-full bg-white object-contain ring-1 ring-line" />
+              <ImagenBeneficio
+                optimizada={b.logoOptimizado}
+                original={b.logo}
+                loading="lazy"
+                className="h-6 w-6 shrink-0 rounded-full bg-white object-contain ring-1 ring-line"
+              />
             )}
             <h3 className="truncate text-base font-semibold">{b.comercio.nombre}</h3>
           </div>
