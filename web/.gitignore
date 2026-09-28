@@ -38,5 +38,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generado desde ../data/beneficios.json en predev/prebuild
+# generados desde ../data en predev/prebuild (scripts/copiar-datos.mjs)
 /public/beneficios.json
+/public/img

@@ -12,9 +12,12 @@
 #
 #   ~/data/                      estado del scraper: beneficios.json (la corrida
 #                                anterior, de donde salen los datos de un banco
-#                                caído) y geocache.json
+#                                caído), geocache.json e img/ (copias reducidas
+#                                de las imágenes, que sirven de caché)
 #   ~/published/beneficios.json  lo que sirve el sitio (public/beneficios.json
 #                                de cada release es un link a este archivo)
+#   ~/published/img/             las imágenes que usa ese JSON (public/img es
+#                                un link a este directorio)
 #
 # Sale con 3 si falló algún banco: los demás se publican igual, con los datos
 # previos del caído. Con cualquier otro error no se publica nada.
@@ -65,9 +68,24 @@ case "$status" in
   *) exit "$status" ;;
 esac
 
+# Imágenes antes que el JSON, para que nunca apunte a una que falta. Son
+# hard links (mismo disco, sin duplicar espacio): el scraper nunca reescribe
+# un archivo, crea uno nuevo, y ya los deja con modo 644.
+install -d -m 755 "$HOME/published/img"
+for f in data/img/*.webp; do
+  [ -e "$f" ] || continue
+  [ -e "$HOME/published/img/${f##*/}" ] || ln "$f" "$HOME/published/img/"
+done
+
 # copia + mv: nginx nunca sirve un JSON a medio escribir. install fija el
 # modo, para que nginx pueda leerlo aunque data/ venga con otros permisos.
 install -m 644 data/beneficios.json "$HOME/published/.beneficios.json.tmp"
 mv "$HOME/published/.beneficios.json.tmp" "$HOME/published/beneficios.json"
 echo "--- publicado ~/published/beneficios.json"
+
+# Después del JSON, las que ya no usa. Quien tenga abierto el sitio con el
+# JSON anterior y pida una de estas cae a la URL original del banco.
+for f in "$HOME/published/img"/*.webp; do
+  [ -e "data/img/${f##*/}" ] || rm -f -- "$f"
+done
 exit "$status"

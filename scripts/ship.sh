@@ -19,7 +19,7 @@
 # el scraping no es parte del deploy: corre aparte en el droplet
 # (deploy/scrape, con su timer). Cada release sube:
 #
-#   public/   web/out, con beneficios.json como link a los datos que publica
+#   public/   web/out, con beneficios.json e img/ como links a lo que publica
 #             el scraper (~/published, fuera de las releases)
 #   app/      el repo, para que el timer corra el scraper y receive-site
 #             instale deploy/systemd/
@@ -81,9 +81,10 @@ fi
 (cd web && pnpm install --frozen-lockfile && pnpm build)
 
 cp -r web/out "$STAGE/public"
-rm -f "$STAGE/public/beneficios.json"
+rm -rf "$STAGE/public/beneficios.json" "$STAGE/public/img"
 # releases/<id>/public/ → ../../../ es el home del usuario del sitio
 ln -s ../../../published/beneficios.json "$STAGE/public/beneficios.json"
+ln -s ../../../published/img "$STAGE/public/img"
 git archive --prefix=app/ HEAD | tar -x -C "$STAGE"
 
 id="$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short=12 HEAD)"

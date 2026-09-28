@@ -61,8 +61,15 @@ export interface Beneficio {
   legal: string;
   link: string | null;
   comercio: { id: string; nombre: string };
+  /** URL original, en el sitio del banco. */
   imagen: string | null;
   logo: string | null;
+  /**
+   * Copia reducida (WebP) de `imagen`/`logo`, relativa a la raíz del sitio
+   * (ej. "img/3fa9…-i.webp"). null si no se pudo generar: se usa la original.
+   */
+  imagenOptimizada?: string | null;
+  logoOptimizado?: string | null;
   categorias: string[];
   tags: string[];
 

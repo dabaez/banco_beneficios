@@ -4,6 +4,7 @@
  *   node scraper                          # todos los bancos + geocodifica lo nuevo
  *   node scraper --banco bci              # solo un banco (se puede repetir)
  *   node scraper --sin-geocodificar       # usa solo lo que ya está en data/geocache.json
+ *   node scraper --sin-imagenes           # no descarga imágenes; usa solo las de data/img
  *
  * Si un banco falla, los demás se guardan igual y se conservan los beneficios
  * previos del banco caído, para que el sitio nunca quede a medias.
@@ -20,14 +21,17 @@ import type { Beneficio, DatasetBeneficios, ResumenBanco } from '../shared/benef
 import { BANCOS, IDS_BANCOS, esBancoId, type BancoId } from '../shared/bancos.ts';
 import { ADAPTADORES } from './bancos/index.ts';
 import { Geocodificador, geocodificarBeneficios } from './geocodificar.ts';
+import { optimizarImagenes } from './imagenes.ts';
 import { ErrorFuente } from './tipos.ts';
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ARCHIVO_DATOS = path.join(RAIZ, 'data', 'beneficios.json');
 const ARCHIVO_GEOCACHE = path.join(RAIZ, 'data', 'geocache.json');
+const DIRECTORIO_IMAGENES = path.join(RAIZ, 'data', 'img');
 
-function parsearArgumentos(argv: string[]): { bancos: BancoId[]; sinGeocodificar: boolean } {
+function parsearArgumentos(argv: string[]): { bancos: BancoId[]; sinGeocodificar: boolean; sinImagenes: boolean } {
   const sinGeocodificar = argv.includes('--sin-geocodificar');
+  const sinImagenes = argv.includes('--sin-imagenes');
   const bancos: BancoId[] = [];
 
   for (let i = 0; i < argv.length; i++) {
@@ -39,7 +43,7 @@ function parsearArgumentos(argv: string[]): { bancos: BancoId[]; sinGeocodificar
     bancos.push(valor);
   }
 
-  return { bancos: bancos.length ? [...new Set(bancos)] : IDS_BANCOS, sinGeocodificar };
+  return { bancos: bancos.length ? [...new Set(bancos)] : IDS_BANCOS, sinGeocodificar, sinImagenes };
 }
 
 /** Dataset anterior, para conservar los datos de un banco que falle en esta corrida. */
@@ -54,7 +58,7 @@ function leerDatasetPrevio(): DatasetBeneficios | null {
 }
 
 async function main() {
-  const { bancos, sinGeocodificar } = parsearArgumentos(process.argv.slice(2));
+  const { bancos, sinGeocodificar, sinImagenes } = parsearArgumentos(process.argv.slice(2));
   const previo = leerDatasetPrevio();
 
   const geo = new Geocodificador(ARCHIVO_GEOCACHE, sinGeocodificar);
@@ -113,6 +117,16 @@ async function main() {
   }
 
   beneficios.sort((a, b) => a.id.localeCompare(b.id)); // orden estable → diffs legibles en git
+
+  // Sobre el dataset completo (también lo conservado de otras corridas), para
+  // saber qué copias siguen en uso.
+  console.log(`\n=== Imágenes${sinImagenes ? ' (solo caché)' : ''} ===`);
+  try {
+    await optimizarImagenes(beneficios, DIRECTORIO_IMAGENES, sinImagenes);
+  } catch (err) {
+    // Sin copias el sitio usa las URLs originales: no es motivo para no publicar.
+    console.warn(`  ⚠ No se pudieron preparar las imágenes (${err}); se usan las URLs originales.`);
+  }
 
   const dataset: DatasetBeneficios = {
     generadoEn: new Date().toISOString(),

@@ -12,6 +12,7 @@ import {
   textoTarjetas,
 } from '@/lib/formato';
 import { BANCOS, type Beneficio } from '@/lib/tipos';
+import ImagenBeneficio from './ImagenBeneficio';
 
 interface Props {
   b: Beneficio | null;
@@ -52,8 +53,11 @@ export default function DetalleBeneficio({ b, ahora, onCerrar, onVerEnMapa }: Pr
         <div className="flex max-h-[calc(100dvh-1.5rem)] flex-col">
           <div className="relative shrink-0">
             {b.imagen && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={b.imagen} alt="" className="aspect-[21/9] w-full object-cover" />
+              <ImagenBeneficio
+                optimizada={b.imagenOptimizada}
+                original={b.imagen}
+                className="aspect-[21/9] w-full object-cover"
+              />
             )}
             <button
               type="button"

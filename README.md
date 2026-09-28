@@ -9,7 +9,7 @@ shared/beneficio.ts   forma normalizada común a todos los bancos (data/benefici
 shared/bancos.ts      registro de bancos: nombre, sitio, tarjetas, color
 scraper/              ingesta + geocodificación (Node 22, TypeScript sin build)
   bancos/<id>/        un adaptador por banco: api.ts (obtener), transformar.ts (normalizar), tipos.ts (crudo)
-data/                 beneficios.json y geocache.json — generados, NO versionados
+data/                 beneficios.json, geocache.json e img/ — generados, NO versionados
 web/                  Next.js (App Router, export estático) + Tailwind + react-leaflet
 scripts/ship.sh       build del visor y publicación en el droplet
 deploy/               lo que corre en el droplet: scrape (scraper + publicar datos) y su timer de systemd
@@ -22,6 +22,7 @@ pnpm install && pnpm exec playwright install chromium   # la primera vez (Playwr
 node scraper                     # todos los bancos + geocodifica solo lo que no está en caché
 node scraper --banco bci         # solo un banco (se puede repetir); los demás conservan sus datos
 node scraper --sin-geocodificar  # no llama a Nominatim; usa solo data/geocache.json
+node scraper --sin-imagenes      # no descarga imágenes; usa solo las de data/img
 ```
 
 Requiere Node ≥ 22.18, que ejecuta TypeScript de forma nativa. Typecheck: `pnpm typecheck`.
@@ -131,13 +132,29 @@ Ningún banco entrega coordenadas. La comuna o el sector se detectan en el texto
   duran 1 año en caché y las búsquedas vacías, 90 días.
 - Los beneficios online o "todo Chile" no tienen pin, pero se pueden filtrar.
 
+### Imágenes
+
+Los bancos sirven imágenes pesadas (fotos de hasta 30 MB en Santander, PNG de 800×800 en
+Santander y BCI) que el sitio muestra a ~350 px. `scraper/imagenes.ts` descarga cada una una vez,
+la reduce a WebP (720 px las imágenes, 64 px los logos) y la guarda en `data/img/` con un hash de
+la URL como nombre, que sirve de caché: ~500 MB de originales quedan en ~64 MB. El beneficio
+conserva la URL original en `imagen`/`logo` y apunta a la copia en `imagenOptimizada`/`logoOptimizado`;
+si la copia no carga, el sitio usa la original (`web/components/ImagenBeneficio.tsx`).
+
+- BCI, Santander y Falabella responden a `fetch` (Santander, solo si el User-Agent no dice ser
+  Chrome). Banco de Chile y BancoEstado no: esas se piden desde un Chromium con ventana, como el de
+  Santander.
+- Una imagen que falla se queda con la URL original; no hace fallar la corrida.
+- `deploy/scrape` publica las copias en `~/published/img/` (hard links) antes del JSON y borra
+  después las que ya no se usan.
+
 ## Frontend
 
 ```bash
 node scraper     # la primera vez, para tener data/beneficios.json
 cd web
 pnpm install
-pnpm dev         # copia ../data/beneficios.json a public/ y levanta http://localhost:3000
+pnpm dev         # copia ../data/beneficios.json a public/, enlaza ../data/img y levanta http://localhost:3000
 pnpm build       # export estático en web/out
 ```
 
