@@ -81,7 +81,8 @@ export default function Visor() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setF(filtrosDesdeUrl(window.location.search, leerPreferencias()));
     setAhora(new Date());
-    fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/beneficios.json`)
+    // no-cache: revalidar siempre, o el navegador reusa un JSON viejo por horas tras un scrape.
+    fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/beneficios.json`, { cache: 'no-cache' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d: DatasetBeneficios) => {
         setData(d);
