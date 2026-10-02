@@ -1,9 +1,12 @@
 [Unit]
-Description=banco-beneficios: re-scrapear los bancos cada semana
+Description=banco-beneficios: re-scrapear los bancos cada semana y el 1° de cada mes
 
 [Timer]
 # La mayoría de las ofertas vence en menos de un mes (ver README).
 OnCalendar=Mon *-*-* 06:00:00
+# Los bancos suelen renovar los descuentos alrededor del 1° de cada mes: esa
+# corrida no puede faltar. Si el 1° cae lunes, systemd corre una sola vez.
+OnCalendar=*-*-01 06:00:00
 # Si el droplet estaba apagado a la hora, corre apenas vuelva.
 Persistent=true
 
