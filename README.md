@@ -186,7 +186,7 @@ parte de un deploy.
 
 - **Datos** — `deploy/scrape` corre el scraper en el droplet y publica el `beneficios.json`
   nuevo sin recompilar. Lo lanza el timer `deploy/systemd/banco-beneficios-scrape.timer`
-  (semanal), que cada deploy instala como unit del usuario del sitio; para cambiar la
+  (semanal y el 1° de cada mes), que cada deploy instala como unit del usuario del sitio; para cambiar la
   frecuencia basta editarlo y pushear. Para correrlo ya: `scripts/ship.sh scrape`.
 
 Los datos viven en el droplet, fuera de las releases: `~/data/` (estado del scraper:
@@ -205,7 +205,8 @@ Variables opcionales del scraper, en `~/scraper.env` del usuario del sitio en el
 `BCI_SUBSCRIPTION_KEY`, `NOMINATIM_USER_AGENT` y `NOMINATIM_EMAIL`.
 
 Nota: la mayoría de las ofertas vence en menos de un mes, por eso el timer es semanal: cuesta
-~4 requests a BCI y una visita a Santander por corrida.
+~4 requests a BCI y una visita a Santander por corrida. Además corre el 1° de cada mes, que es
+cuando los bancos suelen renovar los descuentos.
 
 ## Extensión futura: Google Places (opcional, de pago)
 
