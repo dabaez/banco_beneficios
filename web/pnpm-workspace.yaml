@@ -1,3 +1,6 @@
 allowBuilds:
   # Binario nativo de eslint-import-resolver; ya llega como dependencia opcional.
   unrs-resolver: false
+overrides:
+  brace-expansion@<1.1.21: ^1.1.21
+  brace-expansion@>=4.0.0 <5.0.12: ^5.0.12
