@@ -80,6 +80,11 @@ caído (queda marcado con `error` en `bancos[]` del JSON) y sale con código 3.
   su `benefitData` (categorías, canal presencial/online, descripción y legal). Son ~230 fichas
   de ~1 MB, 4 en paralelo: menos de un minuto. Si una ficha falla (el CDN a veces da 502), el
   beneficio se arma solo con la tarjeta.
+- **En el droplet falla** (403 incluso con navegador, comprobado el 2026-10-19), así que se scrapea
+  desde una IP residencial y se sube: `scripts/falabella-local.sh` baja `~/data` del droplet, corre
+  `node scraper --banco falabella` aquí, lo sube y lo publica (`deploy/publicar`). Necesita ssh como
+  root al droplet (`DROPLET`, por defecto el Host `do`). Mientras tanto, el scraper del droplet
+  conserva esos datos cuando Falabella le falla.
 - Días, vigencia, tarjetas, regiones y canal vienen estructurados; la fecha es exacta (no se
   marca `fechaTerminoAproximada`). `discount` vale 1 en lo que no es un %, así que el porcentaje
   sale del titular de la tarjeta ("Hasta" / "40%" / "Sin Tope").
@@ -187,7 +192,8 @@ parte de un deploy.
 - **Datos** — `deploy/scrape` corre el scraper en el droplet y publica el `beneficios.json`
   nuevo sin recompilar. Lo lanza el timer `deploy/systemd/banco-beneficios-scrape.timer`
   (semanal y el 1° de cada mes), que cada deploy instala como unit del usuario del sitio; para cambiar la
-  frecuencia basta editarlo y pushear. Para correrlo ya: `scripts/ship.sh scrape`.
+  frecuencia basta editarlo y pushear. Para correrlo ya: `scripts/ship.sh scrape`. La publicación (copiar `~/data` a `~/published`) es
+  `deploy/publicar`, que también usa `scripts/falabella-local.sh`.
 
 Los datos viven en el droplet, fuera de las releases: `~/data/` (estado del scraper:
 `beneficios.json` y `geocache.json`) y `~/published/beneficios.json` (lo que se sirve; el

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#
+# publicar — publica ~/data/beneficios.json y sus imágenes en ~/published,
+# que es lo que sirve el sitio. Corre como el usuario del sitio en el droplet.
+#
+# Lo llaman deploy/scrape (después de scrapear en el droplet) y
+# scripts/falabella-local.sh (después de subir lo scrapeado en tu máquina).
+#
+set -euo pipefail
+
+DATA="$HOME/data"
+PUB="$HOME/published"
+
+# Imágenes antes que el JSON, para que nunca apunte a una que falta. Son
+# hard links (mismo disco, sin duplicar espacio): el scraper nunca reescribe
+# un archivo, crea uno nuevo, y ya los deja con modo 644.
+install -d -m 755 "$PUB/img"
+for f in "$DATA"/img/*.webp; do
+  [ -e "$f" ] || continue
+  [ -e "$PUB/img/${f##*/}" ] || ln "$f" "$PUB/img/"
+done
+
+# copia + mv: nginx nunca sirve un JSON a medio escribir. install fija el
+# modo, para que nginx pueda leerlo aunque data/ venga con otros permisos.
+install -m 644 "$DATA/beneficios.json" "$PUB/.beneficios.json.tmp"
+mv "$PUB/.beneficios.json.tmp" "$PUB/beneficios.json"
+echo "--- publicado ~/published/beneficios.json"
+
+# Después del JSON, las que ya no usa. Quien tenga abierto el sitio con el
+# JSON anterior y pida una de estas cae a la URL original del banco.
+for f in "$PUB"/img/*.webp; do
+  [ -e "$f" ] || continue
+  [ -e "$DATA/img/${f##*/}" ] || rm -f -- "$f"
+done
