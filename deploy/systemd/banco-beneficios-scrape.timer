@@ -2,7 +2,8 @@
 Description=banco-beneficios: re-scrapear los bancos cada semana y el 1° de cada mes
 
 [Timer]
-# La mayoría de las ofertas vence en menos de un mes (ver README).
+# La mayoría de las ofertas vence en menos de un mes, por eso es semanal: cada
+# corrida cuesta ~4 requests a BCI y una visita a Santander.
 OnCalendar=Mon *-*-* 06:00:00
 # Los bancos suelen renovar los descuentos alrededor del 1° de cada mes: esa
 # corrida no puede faltar. Si el 1° cae lunes, systemd corre una sola vez.

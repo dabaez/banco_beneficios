@@ -50,7 +50,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Playwright, y el Chromium de su versión en el lockfile (no-op si ya está).
+# Playwright, y el Chromium de su versión en el lockfile (no-op si ya está;
+# ~300 MB en ~/.cache/ms-playwright).
 # Si al Chromium le faltan librerías del sistema, Playwright lo dice al
 # lanzarlo; se instalan como root con `npx playwright install-deps chromium`.
 pnpm install --frozen-lockfile

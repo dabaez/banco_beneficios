@@ -11,8 +11,8 @@ scraper/              ingesta + geocodificación (Node 22, TypeScript sin build)
   bancos/<id>/        un adaptador por banco: api.ts (obtener), transformar.ts (normalizar), tipos.ts (crudo)
 data/                 beneficios.json, geocache.json e img/ — generados, NO versionados
 web/                  Next.js (App Router, export estático) + Tailwind + react-leaflet
-scripts/ship.sh       build del visor y publicación en el droplet
-deploy/               lo que corre en el droplet: scrape (scraper + publicar datos) y su timer de systemd
+scripts/ship.sh       build y publicación del visor
+deploy/               scraping programado y publicación de los datos
 ```
 
 ## Datos
@@ -44,8 +44,7 @@ caído (queda marcado con `error` en `bancos[]` del JSON) y sale con código 3.
   → `{ promociones[], meta }`, todo en una página (~308).
 - **Requiere navegador con ventana.** El dominio está detrás de Akamai Bot Manager: `fetch`,
   curl e incluso Chromium headless reciben 403. El adaptador abre la página con Playwright
-  (headed) y pide el JSON desde ella. En un servidor sin pantalla: `xvfb-run -a node scraper`
-  (`deploy/scrape` lo hace así en el droplet).
+  (headed) y pide el JSON desde ella. En un servidor sin pantalla: `xvfb-run -a node scraper`.
 - El CMS deja vacíos `discount`, `start_date`, `end_date` y las coordenadas. El porcentaje se
   saca de la "bajada" (`"40% dcto. todos los miércoles."`) y la vigencia del texto libre
   (`"Hasta el 30 de septiembre de 2026"`), por eso se marca `fechaTerminoAproximada`. Días,
@@ -80,11 +79,8 @@ caído (queda marcado con `error` en `bancos[]` del JSON) y sale con código 3.
   su `benefitData` (categorías, canal presencial/online, descripción y legal). Son ~230 fichas
   de ~1 MB, 4 en paralelo: menos de un minuto. Si una ficha falla (el CDN a veces da 502), el
   beneficio se arma solo con la tarjeta.
-- **En el droplet falla** (403 incluso con navegador, comprobado el 2026-10-19), así que se scrapea
-  desde una IP residencial y se sube: `scripts/falabella-local.sh` baja `~/data` del droplet, corre
-  `node scraper --banco falabella` aquí, lo sube y lo publica (`deploy/publicar`). Necesita ssh como
-  root al droplet (`DROPLET`, por defecto el Host `do`). Mientras tanto, el scraper del droplet
-  conserva esos datos cuando Falabella le falla.
+- **Desde un servidor falla** (403 incluso con navegador, comprobado el 2026-10-19), así que se
+  scrapea desde una IP residencial con `scripts/falabella-local.sh`, que explica cómo funciona.
 - Días, vigencia, tarjetas, regiones y canal vienen estructurados; la fecha es exacta (no se
   marca `fechaTerminoAproximada`). `discount` vale 1 en lo que no es un %, así que el porcentaje
   sale del titular de la tarjeta ("Hasta" / "40%" / "Sin Tope").
@@ -150,8 +146,6 @@ si la copia no carga, el sitio usa la original (`web/components/ImagenBeneficio.
   Chrome). Banco de Chile y BancoEstado no: esas se piden desde un Chromium con ventana, como el de
   Santander.
 - Una imagen que falla se queda con la URL original; no hace fallar la corrida.
-- `deploy/scrape` publica las copias en `~/published/img/` (hard links) antes del JSON y borra
-  después las que ya no se usan.
 
 ## Frontend
 
@@ -169,50 +163,6 @@ filtros de ubicación se recuerdan en `localStorage` (`web/lib/preferencias.ts`)
 tiene prioridad. Los beneficios vencidos se ocultan según la
 fecha del navegador. La página carga `beneficios.json` al abrirse, así que actualizar los datos
 no requiere recompilar.
-
-## Deploy
-
-Publicar el sitio y actualizar los datos son dos procesos separados. El visor carga
-`beneficios.json` al abrirse, así que se compila sin datos y el scraping (que tarda) nunca es
-parte de un deploy.
-
-- **Sitio** — `scripts/ship.sh` compila `web/` y sube la release al droplet por ssh
-  (`receive-site`, del repo `dabaez/droplet-infra`). Es lo que corre el workflow de GitHub
-  Actions al pushear a `main`, y también se puede correr a mano:
-
-  ```bash
-  DEPLOY_TARGET=banco-deploy scripts/ship.sh           # compilar y publicar
-  DEPLOY_TARGET=banco-deploy scripts/ship.sh rollback  # volver a la release anterior
-  DEPLOY_TARGET=banco-deploy scripts/ship.sh releases  # listar releases
-  ```
-
-  Necesita los secrets `DEPLOY_TARGET`, `DEPLOY_SSH_KEY` y `DEPLOY_KNOWN_HOSTS`, y la variable
-  `BASE_PATH` si el sitio se sirve bajo un subdirectorio.
-
-- **Datos** — `deploy/scrape` corre el scraper en el droplet y publica el `beneficios.json`
-  nuevo sin recompilar. Lo lanza el timer `deploy/systemd/banco-beneficios-scrape.timer`
-  (semanal y el 1° de cada mes), que cada deploy instala como unit del usuario del sitio; para cambiar la
-  frecuencia basta editarlo y pushear. Para correrlo ya: `scripts/ship.sh scrape`. La publicación (copiar `~/data` a `~/published`) es
-  `deploy/publicar`, que también usa `scripts/falabella-local.sh`.
-
-Los datos viven en el droplet, fuera de las releases: `~/data/` (estado del scraper:
-`beneficios.json` y `geocache.json`) y `~/published/beneficios.json` (lo que se sirve; el
-`beneficios.json` de cada release es un link a ese archivo). Si falla un banco, se publican los
-demás con los datos previos del caído (el servicio termina con código 3); si falla todo, el
-sitio sigue sirviendo los datos anteriores. Logs, como root:
-`journalctl _SYSTEMD_USER_UNIT=banco-beneficios-scrape.service`.
-
-Santander y BancoEstado usan Playwright (y Falabella como respaldo si Cloudflare bloquea la IP
-del servidor). `deploy/scrape` descarga el Chromium que corresponde a la versión del lockfile
-(~300 MB, en `~/.cache/ms-playwright` del usuario del sitio). Las librerías del sistema y
-`xvfb` se instalan una vez como root: `apt install xvfb` y `npx playwright install-deps chromium`.
-
-Variables opcionales del scraper, en `~/scraper.env` del usuario del sitio en el droplet:
-`BCI_SUBSCRIPTION_KEY`, `NOMINATIM_USER_AGENT` y `NOMINATIM_EMAIL`.
-
-Nota: la mayoría de las ofertas vence en menos de un mes, por eso el timer es semanal: cuesta
-~4 requests a BCI y una visita a Santander por corrida. Además corre el 1° de cada mes, que es
-cuando los bancos suelen renovar los descuentos.
 
 ## Extensión futura: Google Places (opcional, de pago)
 
